@@ -162,23 +162,25 @@ class DLLibrary(ABC):
 
 class PyTorchLibrary(DLLibrary):
 
-	def __init__(self,data_path):
+	def __init__(self,data_path,device="cpu"):
 		"""Call the initialization of the parent class."""
+		self._device = torch.device("cuda:0" if (device!="cpu" and torch.cuda.is_available()) else "cpu")
 		super().__init__(data_path)
 		if not self._is_jit_model :
 			warnings.warn("The data given in argument does not contain a class to instanciate the model, therefore the run function will return None.\nTo avoid this issue, consider using a model saved using scripted modules provided by jit.",PartiallySupportedFileWarning)
 		self._input_shape = None
 
+		
+
 	def _load_data(self,data_path):
 		"""Load (on the cpu) the data in self._data_loaded with pytorch API."""
-		device = torch.device('cpu')
+		#device = torch.device('cpu')
 		with warnings.catch_warnings():
 			warnings.filterwarnings("ignore", message="'torch.load' received a zip file that looks like a TorchScript")
-			self._data_loaded = torch.load(data_path, map_location=device)
+			self._data_loaded = torch.load(data_path, map_location=self._device)
 		self._is_jit_model = not isinstance(self._data_loaded, dict)
 		if self._is_jit_model:
-			self._data_loaded = torch.jit.load(data_path, map_location=device)
-		
+			self._data_loaded = torch.jit.load(data_path, map_location=self._device)
 
 	def _compute_number_of_parameters(self):
 		"""
@@ -231,7 +233,7 @@ class PyTorchLibrary(DLLibrary):
 
 		# Get nb of channel
 		try:
-		    output = model(torch.from_numpy(dummy_input))
+			output = model(torch.from_numpy(dummy_input).to(self._device))
 		except RuntimeError as err:
 			regexp = re.compile(r'expected input.*to have (?P<expected_number_of_channels>[0-9]*) channel')
 			for line in str(err).splitlines():
@@ -248,7 +250,7 @@ class PyTorchLibrary(DLLibrary):
 			output_is_too_small = False
 			shapes_cannot_be_multiplied = False
 			try:
-			    output = model(torch.from_numpy(dummy_input))
+				output = model(torch.from_numpy(dummy_input).to(self._device))
 			except RuntimeError as err:
 				for line in str(err).splitlines():
 					if "Output size is too small" in line:
@@ -297,6 +299,7 @@ class PyTorchLibrary(DLLibrary):
 
 		self._load_data(self._data_path)
 		model = self._data_loaded
+		model.to(self._device)
 
 		model.eval()  # To set dropout and batch normalization layers to evaluation mode before running inference
 		
@@ -308,7 +311,7 @@ class PyTorchLibrary(DLLibrary):
 		# Approximate how long it takes to run once.
 		t_start = time.time()
 		input_array = preprocess(image,input_shape)
-		output = model(torch.from_numpy(input_array))
+		output = model(torch.from_numpy(input_array).to(self._device))
 		t_stop = time.time()
 		delta_t = t_stop - t_start
 
@@ -324,7 +327,7 @@ class PyTorchLibrary(DLLibrary):
 		
 		for _ in range(nb_iter):
 			input_array = preprocess(image,input_shape)
-			output = model(torch.from_numpy(input_array))
+			output = model(torch.from_numpy(input_array).to(self._device))
 
 		emissions: float = tracker.stop()
 		print(f"Emissions: {emissions/nb_iter} kg per run")
@@ -464,15 +467,18 @@ class TensorFlowLibrary(DLLibrary):
 
 		if len(input_shape) == 4:
 			input_shape[0] = 1
-		input_array = preprocess(image,input_shape)
-		if (tf.config.list_physical_devices('GPU')==0) and (preprocess == default_preprocess_NCHW):
+		# It is assumed number of channel < size of the image
+		if input_shape[-3] > input_shape[-1]:
+			input_shape.insert(-3,input_shape.pop())
+		if (len(tf.config.list_physical_devices('GPU'))==0) and (preprocess == default_preprocess_NCHW):
 			#on CPU NCHW format is not supported
 			preprocess = default_preprocess_NHWC
 			print("format NHWC")
-			input_shape.append(input_shape.pop(-3))
-			print("new input_shape : ",input_shape)
-			tf.reshape(input_array, input_shape)
+			# It is assumed number of channel < size of the image
+			if input_shape[-3] < input_shape[-1]:
+				input_shape.append(input_shape.pop(-3))
 		
+		input_array = preprocess(image,input_shape)
 		outputs = model(input_array, training=False)
 		# For processing batches, don't loop over input data 1 by 1, use :
         # model.predict(
