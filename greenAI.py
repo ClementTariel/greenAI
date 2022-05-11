@@ -28,6 +28,96 @@ import time
 class PartiallySupportedFileWarning(UserWarning):
 	pass
 
+class GPUNotFoundWarning(UserWarning):
+	pass
+
+# To prevent a crash when using GPU with tensorflow
+physical_devices = tf.config.list_physical_devices('GPU')
+if len(physical_devices) > 0:
+	tf.config.experimental.set_memory_growth(physical_devices[0], True)
+else:
+	warnings.warn("tf.config.list_physical_devices('GPU') is empty, there is no GPU available for tensorflow. ",GPUNotFoundWarning)
+
+
+import torch.nn as nn
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        
+        self.conv1 = nn.Conv2d(3, 16, 3, 1, padding=1)
+        self.conv_bn_1 = nn.BatchNorm2d(16)
+        torch.nn.init.normal_(self.conv1.weight)
+        torch.nn.init.zeros_(self.conv1.bias)
+        
+        self.conv2 = nn.Conv2d(16, 32, 3, 1, padding=1)
+        self.conv_bn_2 = nn.BatchNorm2d(32)
+        torch.nn.init.normal_(self.conv2.weight)
+        torch.nn.init.zeros_(self.conv2.bias)
+        
+        self.conv3 = nn.Conv2d(32, 64 , 3, 1, padding=1)
+        self.conv_bn_3 = nn.BatchNorm2d(64)
+        torch.nn.init.normal_(self.conv3.weight)
+        torch.nn.init.zeros_(self.conv3.bias)
+        
+        self.conv4 = nn.Conv2d(64, 128 , 3, 1, padding=1)
+        self.conv_bn_4 = nn.BatchNorm2d(128)
+        torch.nn.init.normal_(self.conv4.weight)
+        torch.nn.init.zeros_(self.conv4.bias)
+        
+        #self.conv5 = nn.Conv2d(64, 128 , 3, 1, padding=1)
+        #self.conv_bn_5 = nn.BatchNorm2d(128)
+        #torch.nn.init.normal_(self.conv5.weight)
+        #torch.nn.init.zeros_(self.conv5.bias)
+        
+        #self.conv4 = nn.Conv2d(256, 512 , 3, 1, padding=1)
+        #self.conv_bn_4 = nn.BatchNorm2d(512)
+        #torch.nn.init.normal_(self.conv4.weight)
+        #torch.nn.init.zeros_(self.conv4.bias)
+        
+        self.pool  = nn.MaxPool2d(2,2)
+
+        self.act   = nn.ReLU(inplace=False)
+        self.drop = nn.Dropout2d(0.2)
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(4*4*128,64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(16, 2)  
+            #nn.Softmax(dim=-1)    
+        )
+    
+
+    def forward(self, x):
+        x = self.conv_bn_1(self.conv1(x))
+        x = self.pool(self.act(x))
+        x = self.drop(x)
+
+        x = self.conv_bn_2(self.conv2(x))
+        x = self.pool(self.act(x))
+        x = self.drop(x)
+        
+        x = self.conv_bn_3(self.conv3(x))
+        x = self.pool(self.act(x))
+        x = self.drop(x)
+        
+        x = self.conv_bn_4(self.conv4(x))
+        x = self.pool(self.act(x))
+        x = self.drop(x)
+        
+        bsz, nch, height, width = x.shape
+        x = torch.flatten(x, start_dim=1, end_dim=-1)
+        
+        y = self.mlp(x)
+
+        return y
+
+
+
 
 def volume(shape):
 	"""
@@ -46,6 +136,26 @@ def volume(shape):
 	return v
 
 
+def default_preprocess(image,input_shape):
+	"""
+	Apply a default preprocess to an image.
+
+	Check whether the format of the input shape matches NCHW or NHWC
+	and call the approriate function accordingly
+
+	Args:
+		image (PIL image): an image to which the preprocess will be applied
+		input_shape (list[int]): the expected shape of the image after the preprocess
+
+	Returns:
+		numpy.array[numpy.float32]: An array with the data of the image in NCHW format
+	
+	"""
+	# It is assumed number of channel < size of the image
+	if input_shape[-3] > input_shape[-1]:
+		return default_preprocess_NHWC(image,input_shape)
+	return default_preprocess_NCHW(image,input_shape)
+
 def default_preprocess_NCHW(image,input_shape):
 	"""
 	Apply a default preprocess to an image.
@@ -53,6 +163,10 @@ def default_preprocess_NCHW(image,input_shape):
 	Resize the image to make it match a given input shape and convert it to a numpy array.
 	Then change the order of the dimension of the array to match NCHW format
 	(batch size is on the first dimension, then Color, then Heigth, then Width).
+
+	Args:
+		image (PIL image): an image to which the preprocess will be applied
+		input_shape (list[int]): the expected shape of the image after the preprocess
 
 	Returns:
 		numpy.array[numpy.float32]: An array with the data of the image in NCHW format
@@ -77,6 +191,10 @@ def default_preprocess_NHWC(image,input_shape):
 	Then change the order of the dimension of the array to match NCHW format
 	(the batch size is on the first dimension, then Height, then Width, then Color).
 
+	Args:
+		image (PIL image): an image to which the preprocess will be applied
+		input_shape (list[int]): the expected shape of the image after the preprocess
+
 	Returns:
 		numpy.array[numpy.float32]: An array with the data of the image in NHWC format
 	
@@ -99,26 +217,21 @@ class DLLibrary(ABC):
 	"""
 	A class to store a generic Deep Learning Model.
 
-	Attributes
-	----------
-	self._data_path : str
-	    A string to reprensent the path to the file where the model is stored
-	self._data_loaded : 
-	    The model once it is loaded
-	self._number_of_parameters : int
-	    The number of parameters
+	Attributes:
+		self._data_path : str
+		    A string to reprensent the path to the file where the model is stored
+		self._data_loaded : 
+		    The model once it is loaded
+		self._number_of_parameters : int
+		    The number of parameters
 
-	Methods
-	-------
-	__init__()
-	get_number_of_parameters()
-	free_model_data()
-
-	Abstract Methods
-	-------
-	_load_data(data_path)
-	_compute_number_of_parameters()
-	run(input_data)
+	Methods:
+		__init__()
+		get_number_of_parameters()
+		free_model_data()
+		_load_data(data_path)
+		_compute_number_of_parameters()
+		run(input_data)
 
 	"""
 	
@@ -130,6 +243,9 @@ class DLLibrary(ABC):
 		Then load the data from the file at data_path,
 		compute the number of parameters of the model, store it,
 		and finally free the memory where the model was loaded.
+
+		Args:
+			data_path (string): the path leading to the file to load
 		"""
 		self._data_path = data_path
 		self._load_data(self._data_path)
@@ -159,22 +275,50 @@ class DLLibrary(ABC):
 		"""overridden by subclass"""
 		pass
 
+	@abstractmethod
+	def inference_emissions(self,input_data):
+		"""overridden by subclass"""
+		pass
+
 
 class PyTorchLibrary(DLLibrary):
 
-	def __init__(self,data_path,device="cpu"):
-		"""Call the initialization of the parent class."""
-		self._device = torch.device("cuda:0" if (device!="cpu" and torch.cuda.is_available()) else "cpu")
+	def __init__(self,data_path,enable_GPU=True,model_constructor=None):
+		"""
+		Initialisation.
+
+		Call the initialization of the parent class.
+		The devices used can be specified with enable_GPU to enable/disable GPU usage.
+		
+		Args:
+			data_path (string): the path leading to the file to load
+			enable_GPU (bool): states whether GPU can be used or not
+			model_constructor (class): the class constructor of the model to use 
+									if the file at data_path only contains weights
+
+		"""
+		self._model_constructor = model_constructor
+		self._enable_GPU = enable_GPU
+		device_str = "cpu"
+		if (self._enable_GPU):
+			if (torch.cuda.is_available()):
+				device_str = "cuda"
+			else:
+				warnings.warn("torch.cuda.is_available() returns False, there is no GPU available. ",GPUNotFoundWarning)
+		self._device = torch.device(device_str)
 		super().__init__(data_path)
-		if not self._is_jit_model :
-			warnings.warn("The data given in argument does not contain a class to instanciate the model, therefore the run function will return None.\nTo avoid this issue, consider using a model saved using scripted modules provided by jit.",PartiallySupportedFileWarning)
+		if not self._is_jit_model and model_constructor is None:
+			warnings.warn("The data given in argument does not contain a class to instanciate the model, "
+						+"therefore the run function will return None.\nTo avoid this issue, "
+						+"provide the class constructor of the model using the optional argument model_constructor "
+						+"or consider using a model saved using scripted modules provided by jit.",
+						PartiallySupportedFileWarning)
 		self._input_shape = None
 
 		
 
 	def _load_data(self,data_path):
-		"""Load (on the cpu) the data in self._data_loaded with pytorch API."""
-		#device = torch.device('cpu')
+		"""Load the data in self._data_loaded with pytorch API."""
 		with warnings.catch_warnings():
 			warnings.filterwarnings("ignore", message="'torch.load' received a zip file that looks like a TorchScript")
 			self._data_loaded = torch.load(data_path, map_location=self._device)
@@ -227,7 +371,12 @@ class PyTorchLibrary(DLLibrary):
 		"""
 		if not self._input_shape is None :
 			return
-		model = self._data_loaded
+		if self._is_jit_model:
+			model = self._data_loaded
+		else:
+			model = self._model_constructor()
+			model.load_state_dict(self._data_loaded)
+		model.to(self._device)
 		model.eval()  # To set dropout and batch normalization layers to evaluation mode before running inference
 		dummy_input = np.zeros(input_shape,dtype=np.float32)
 
@@ -274,31 +423,34 @@ class PyTorchLibrary(DLLibrary):
 							shapes_cannot_be_multiplied = True
 		self._input_shape = input_shape
 
-	def run(self,input_data,input_size=None,preprocess=default_preprocess_NCHW):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################		
+	def inference_emissions(self,test_duration,input_data,input_size=None,preprocess=default_preprocess):
 		"""
-		Run the inference model.
+		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
 		Args:
-	    	input_data : Contains the data to feed to the model
-
+	    	test_duration (float): the duration of the tests in seconds
+			input_data : Contains the path to the data to feed to the model
+	    	input_size (list[int]): the expected shape of the input (None by default if unkown)
+	    	preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
 	    Returns:
-	    	The raw output given by the model
-		"""
-		
-		if not self._is_jit_model:
-			warnings.warn("The data given in argument does not contain a class to instanciate the model,"
-				+" therefore the run function will return None.\n"
-				+"To avoid this issue, consider using a model saved using scripted modules provided by jit.",
-				PartiallySupportedFileWarning)
-			return None
+	    	float: the average equivalence of CO2 emissions of a run (in kg eq. CO2 per run)
 
+		"""
 		self._load_data(self._data_path)
 		model = self._data_loaded
+		if not self._is_jit_model:
+			if self._model_constructor is None:
+				warnings.warn("The data given in argument does not contain a class to instanciate the model, "
+						+"therefore the run function will return None.\nTo avoid this issue, "
+						+"provide the class constructor of the model using the optional argument model_constructor "
+						+"or consider using a model saved using scripted modules provided by jit.",
+						PartiallySupportedFileWarning)
+				return None
+			else:
+				model = self._model_constructor()
+				model.load_state_dict(self._data_loaded)
+		
 		model.to(self._device)
 
 		model.eval()  # To set dropout and batch normalization layers to evaluation mode before running inference
@@ -308,37 +460,91 @@ class PyTorchLibrary(DLLibrary):
 		
 		image = Image.open(input_data)
 		
-		# Approximate how long it takes to run once.
 		t_start = time.time()
 		input_array = preprocess(image,input_shape)
-		output = model(torch.from_numpy(input_array).to(self._device))
+		_ = model(torch.from_numpy(input_array).to(self._device))
 		t_stop = time.time()
 		delta_t = t_stop - t_start
 
-		# To do a runtest that last about test_duration seconds.
-		test_duration = 0.5
+		# To do a runtest that last about test_duration seconds
 		nb_iter = int(test_duration/(delta_t))
 		if nb_iter < 1:
 			nb_iter = 1
-		print(nb_iter," iterations")
 
 		tracker = EmissionsTracker()
 		tracker.start()
-		
+
 		for _ in range(nb_iter):
 			input_array = preprocess(image,input_shape)
 			output = model(torch.from_numpy(input_array).to(self._device))
 
 		emissions: float = tracker.stop()
-		print(f"Emissions: {emissions/nb_iter} kg per run")
+		self.free_model_data()
+		return emissions/nb_iter
 
+	def run(self,input_data,input_size=None,preprocess=default_preprocess):
+		#########################
+		#						#
+		#	Work in progress	#
+		#						#
+		#########################		
+		"""
+		Run the inference model.
+
+		Args:
+	    	input_data : Contains the path to the data to feed to the model
+	    	input_size (list[int]): the expected shape of the input (None by default if unkown)
+	    	preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
+
+	    Returns:
+	    	The raw output given by the model
+		"""
+		self._load_data(self._data_path)
+		model = self._data_loaded
+		if not self._is_jit_model:
+			if self._model_constructor is None:
+				warnings.warn("The data given in argument does not contain a class to instanciate the model, "
+						+"therefore the run function will return None.\nTo avoid this issue, "
+						+"provide the class constructor of the model using the optional argument model_constructor "
+						+"or consider using a model saved using scripted modules provided by jit.",
+						PartiallySupportedFileWarning)
+				return None
+			else:
+				model = self._model_constructor()
+				model.load_state_dict(self._data_loaded)
+		
+		model.to(self._device)
+
+		model.eval()  # To set dropout and batch normalization layers to evaluation mode before running inference
+		
+		self._define_input_shape()
+		input_shape = self._input_shape		
+		
+		image = Image.open(input_data)
+		
+		input_array = preprocess(image,input_shape)
+		output = model(torch.from_numpy(input_array).to(self._device))
+		
+		self.free_model_data()
 		return output
 
 
 class ONNXLibrary(DLLibrary):
 
-	def __init__(self,data_path):
-		"""Call the initialization of the parent class."""
+	def __init__(self,data_path,enable_GPU=True):
+		"""
+		Initialisation.
+
+		Call the initialization of the parent class.
+		The devices used can be specified with enable_GPU to enable/disable GPU usage.
+		
+		Args:
+			data_path (string): the path leading to the file to load
+			enable_GPU (bool): states whether GPU can be used or not
+
+		"""
+		self._enable_GPU = enable_GPU
 		super().__init__(data_path)
 		
 	def _load_data(self,data_path):
@@ -364,7 +570,55 @@ class ONNXLibrary(DLLibrary):
 				total += volume(list(shape))
 		return total
 
-	def run(self,input_data,preprocess=default_preprocess_NCHW):
+	def inference_emissions(self,test_duration,input_data,preprocess=default_preprocess):
+		"""
+		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
+
+		Args:
+	    	test_duration (float): the duration of the tests in seconds
+			input_data : Contains the data to feed to the model
+			preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
+	    Returns:
+	    	float: the average equivalence of CO2 emissions of a run (in kg eq. CO2 per run)
+
+		"""
+		providers = ort.get_available_providers()
+		if (not self._enable_GPU):
+			providers = ["CPUExecutionProvider"]
+		elif (self._enable_GPU and not "CUDAExecutionProvider" in providers):
+			warnings.warn("CUDAExecutionProvider not found, there is no GPU available. ",GPUNotFoundWarning)
+		
+		ort_sess = ort.InferenceSession(self._data_path, None, providers=providers)
+		
+		input_shape = ort_sess.get_inputs()[0].shape
+		input_name = ort_sess.get_inputs()[0].name
+
+		image = Image.open(input_data)
+		# Approximate how long it takes to run once.
+		t_start = time.time()
+		input_array = preprocess(image,input_shape)
+		_ = ort_sess.run(None, {input_name: input_array})
+		t_stop = time.time()
+		delta_t = t_stop - t_start
+
+		# To do a runtest that last about test_duration seconds
+		nb_iter = int(test_duration/(delta_t))
+		if nb_iter < 1:
+			nb_iter = 1
+		
+		tracker = EmissionsTracker()
+		tracker.start()
+
+		for _ in range(nb_iter):
+			input_array = preprocess(image,input_shape)
+			_ = ort_sess.run(None, {input_name: input_array})
+
+		emissions: float = tracker.stop()
+		self.free_model_data()
+		return emissions/nb_iter
+
+	def run(self,input_data,preprocess=default_preprocess):
 		#########################
 		#						#
 		#	Work in progress	#
@@ -375,58 +629,62 @@ class ONNXLibrary(DLLibrary):
 
 		Args:
 	    	input_data : Contains the data to feed to the model
-
+			preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
 	    Returns:
 	    	The raw output given by the model
 		"""
-
-		#providers = ort.get_available_providers()
-		providers = ["CPUExecutionProvider"]
+		providers = ort.get_available_providers()
+		if (not self._enable_GPU):
+			providers = ["CPUExecutionProvider"]
+		elif (self._enable_GPU and not "CUDAExecutionProvider" in providers):
+			warnings.warn("CUDAExecutionProvider not found, there is no GPU available. ",GPUNotFoundWarning)
+		
 		ort_sess = ort.InferenceSession(self._data_path, None, providers=providers)
 		
 		input_shape = ort_sess.get_inputs()[0].shape
 		input_name = ort_sess.get_inputs()[0].name
-		
+
 		image = Image.open(input_data)
 		
-		# Approximate how long it takes to run once.
-		t_start = time.time()
 		input_array = preprocess(image,input_shape)
-		outputs = ort_sess.run(None, {input_name: input_array})
-		t_stop = time.time()
-		delta_t = t_stop - t_start
+		output = ort_sess.run(None, {input_name: input_array})
 
-		# To do a runtest that last about test_duration seconds
-		test_duration = 0.5
-		nb_iter = int(test_duration/(delta_t))
-		if nb_iter < 1:
-			nb_iter = 1
-		print(nb_iter," iterations")
-
-		tracker = EmissionsTracker()
-		tracker.start()
-		
-		for _ in range(nb_iter):
-			input_array = preprocess(image,input_shape)
-			outputs = ort_sess.run(None, {input_name: input_array})
-
-		emissions: float = tracker.stop()
-		print(f"Emissions: {emissions/nb_iter} kg per run")
-
-		return outputs
+		self.free_model_data()
+		return output
 
 
 class TensorFlowLibrary(DLLibrary):
 
-	def __init__(self,data_path):
-		"""Call the initialization of the parent class."""
+	def __init__(self,data_path,enable_GPU=True):
+		"""
+		Initialisation.
+
+		Call the initialization of the parent class.
+		The devices used can be specified with enable_GPU to enable/disable GPU usage.
+		
+		Args:
+			data_path (string): the path leading to the file to load
+			enable_GPU (bool): states whether GPU can be used or not
+
+		"""
+		self._enable_GPU = enable_GPU
+		self._device_str = "cpu"
+		if enable_GPU:
+			if len(tf.config.list_physical_devices('GPU')) > 0:
+				self._device_str = "gpu"
+			else:
+				warnings.warn("tf.config.list_physical_devices('GPU') is empty, there is no GPU available. ",GPUNotFoundWarning)
 		super().__init__(data_path)
 
 	def _load_data(self,data_path):
 		"""Load (on the cpu) the data in self._data_loaded with tensorflow.keras API."""
-		with tf.device('/cpu:0'):
+		
+		with tf.device(self._device_str):
 			# compile=False means the model can be used only in inference (avoid warnings about training)
-			self._data_loaded = tf.keras.models.load_model(data_path, compile=False)
+			# self._data_loaded = tf.keras.models.load_model(data_path, compile=False)
+			self._data_loaded = tf.keras.models.load_model(data_path)
+
 	def _compute_number_of_parameters(self):
 		"""
 		Get the number of parameters using a function from the tensorflow.keras API.
@@ -438,7 +696,58 @@ class TensorFlowLibrary(DLLibrary):
 		total = self._data_loaded.count_params()
 		return total
 
-	def run(self,input_data,input_size=None,preprocess=default_preprocess_NCHW):
+	def inference_emissions(self,test_duration,input_data,preprocess=default_preprocess):
+		"""
+		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
+
+		Args:
+	    	test_duration (float): the duration of the tests in seconds
+	    	input_data : Contains the path to the data to feed to the model
+	    	preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
+
+	    Returns:
+	    	float: the average equivalence of CO2 emissions of a run (in kg eq. CO2 per run)
+
+		"""
+		self._load_data(self._data_path)
+		model = self._data_loaded
+		model_config = model.get_config()
+		# We want inputshape = (batch size, number of color channel, width, height)
+		# batch size can be None since the model has some flexibility
+		input_shape = list(model_config["layers"][0]["config"]["batch_input_shape"])
+		
+		image = Image.open(input_data)
+
+		if len(input_shape) == 4:
+			input_shape[0] = 1
+		# Approximate how long it takes to run once.
+		t_start = time.time()
+		with tf.device(self._device_str):
+			input_array = preprocess(image,input_shape)
+			_ = model(input_array, training=False)
+		t_stop = time.time()
+		delta_t = t_stop - t_start
+
+		# To do a runtest that last about test_duration seconds
+		nb_iter = int(test_duration/(delta_t))
+		if nb_iter < 1:
+			nb_iter = 1
+		
+		tracker = EmissionsTracker()
+		tracker.start()
+
+		with tf.device(self._device_str):
+			for _ in range(nb_iter):
+				input_array = preprocess(image,input_shape)
+				_ = model(input_array, training=False)
+
+		emissions: float = tracker.stop()
+		self.free_model_data()
+		return emissions/nb_iter
+
+
+	def run(self,input_data,preprocess=default_preprocess):
 		#########################
 		#						#
 		#	Work in progress	#
@@ -448,7 +757,9 @@ class TensorFlowLibrary(DLLibrary):
 		Run the inference model.
 
 		Args:
-	    	input_data : Contains the data to feed to the model
+	    	input_data : Contains the path to the data to feed to the model
+	    	preprocess (<class 'function'>): the preprocess to apply to the input data 
+	    									(a default preprocess is applied if none is specified)
 
 	    Returns:
 	    	The raw output given by the model
@@ -457,41 +768,21 @@ class TensorFlowLibrary(DLLibrary):
 		model = self._data_loaded
 		model_config = model.get_config()
 		# We want inputshape = (batch size, number of color channel, width, height)
-		# batch size can be None since the model has some flexiibility
+		# batch size can be None since the model has some flexibility
 		input_shape = list(model_config["layers"][0]["config"]["batch_input_shape"])
 		print("input_shape : ",input_shape)
 		
 		image = Image.open(input_data)
 
-		print("GPUs Available: ", tf.config.list_physical_devices('GPU'))
-
 		if len(input_shape) == 4:
 			input_shape[0] = 1
-		# It is assumed number of channel < size of the image
-		if input_shape[-3] > input_shape[-1]:
-			input_shape.insert(-3,input_shape.pop())
-		if (len(tf.config.list_physical_devices('GPU'))==0) and (preprocess == default_preprocess_NCHW):
-			#on CPU NCHW format is not supported
-			preprocess = default_preprocess_NHWC
-			print("format NHWC")
-			# It is assumed number of channel < size of the image
-			if input_shape[-3] < input_shape[-1]:
-				input_shape.append(input_shape.pop(-3))
 		
-		input_array = preprocess(image,input_shape)
-		outputs = model(input_array, training=False)
-		# For processing batches, don't loop over input data 1 by 1, use :
-        # model.predict(
-		#     input_array,
-		#     batch_size=None,
-		#     verbose=0,
-		#     steps=None,
-		#     callbacks=None,
-		#     max_queue_size=10,
-		#     workers=1,
-		#     use_multiprocessing=False
-		# )
-		return outputs
+		with tf.device(self._device_str):
+			input_array = preprocess(image,input_shape)
+			output = model(input_array, training=False)
+			
+		self.free_model_data()
+		return output
 
 
 
@@ -500,19 +791,17 @@ class DLModelFactory:
 	"""
 	A class to create instances of the appropriate sub-classes of DLLibrary for given files.
 
-	Attributes
-	----------
-	self._creators : dict of str: class constructor
-		A dictionnary with :
-			input: The extension of a DL model format (example : ".pt")
-	    	output: The DLLibrary sub-class that correpond to this format
+	Attributes:
+		self._creators : dict of str: class constructor
+			A dictionnary with :
+				input: The extension of a DL model format (example : ".pt")
+		    	output: The DLLibrary sub-class that correpond to this format
 
-	Methods
-	-------
-	__init__()
-	register_format(format, creator)
-	register_predefined_formats()
-	get_model(data_path)
+	Methods:
+		__init__()
+		register_format(format, creator)
+		register_predefined_formats()
+		get_model(data_path)
 
 	"""
 
@@ -543,7 +832,7 @@ class DLModelFactory:
 		the formats are:
 			- PyTorch models with ".pt" extension
 			- ONNX models with ".onnx" extension
-			- TensorFlow models using keras API with ".h5" extension
+			- TensorFlow models saved as a folder or using keras API with ".h5" extension
 
 		"""
 		self.register_format(".pt",PyTorchLibrary)
@@ -571,7 +860,7 @@ class DLModelFactory:
 				creator = self._creators[format]
 		if not creator:
 			raise ValueError(format)
-		return creator(data_path)
+		return creator
 
 
 
@@ -592,15 +881,21 @@ if __name__ == '__main__':
 			print ('model :', sys.argv[k])
 			# Check if the given file is supported
 			try :
-				model = factory.get_model(str(sys.argv[k]))
+				model_constructor = factory.get_model(str(sys.argv[k]))
 			except ValueError:
 				print("unsupported file format")
 				print("")
 				continue
+			# just to test .pt model with constructor in argument
+			try:
+				model = model_constructor(str(sys.argv[k]),model_constructor=Net)
+			except TypeError:
+				model = model_constructor(str(sys.argv[k]))
 			print("/======================================\\")
-			total = model.get_number_of_parameters()
-			print(model.run("../cat.jpg"))
-			print("total :",total,"parameters")
+			#print(model.run("../cat.jpg"))
+			print("emissions :",model.inference_emissions(1,"../glacier.jpg")," kg eq. CO2 per run")
+			print("total :",model.get_number_of_parameters(),"parameters")
+			print(model.run("../glacier.jpg"))
 			print("\\======================================/")
 			print("")
 			
