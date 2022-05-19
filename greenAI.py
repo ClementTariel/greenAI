@@ -1,7 +1,4 @@
-#!/usr/bin/python
-
-from codecarbon import EmissionsTracker
-from codecarbon import track_emissions
+#!/usr/bin/env python3
 
 from abc import ABC, abstractmethod
 
@@ -28,6 +25,10 @@ import time
 
 from dllibrary import *
 from energyprofiler import *
+
+from codecarbon import EmissionsTracker
+from codecarbon import track_emissions
+
 
 # Execute when the module is not initialized from an import statement.
 if __name__ == '__main__':	
@@ -139,12 +140,27 @@ if __name__ == '__main__':
 				model = model_constructor(str(sys.argv[k]))
 			print("/======================================\\")
 			#print(model.run("../cat.jpg"))
-			test_duration = 60
-			print("start test of ",test_duration," seconds")
-			print("emissions :",model.inference_emissions(NvidiaProfiler(5),test_duration,"../glacier.jpg")," kg eq. CO2 per run")
-			#print("emissions :",model.inference_emissions(EmissionsTracker(save_to_file=False),test_duration,"../glacier.jpg")," kg eq. CO2 per run")
+			input_file = "../glacier.jpg"
+			test_duration = 20
+			delay_between_measures = 5
+			print("start test(s) of ",test_duration," seconds (+ potential additionnal time depending on the delay between 2 measures)")
+			profiler = LikwidProfiler(delay_between_measures)
+			print("LikwidProfiler")
+			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			profiler = CodecarbonProfiler(delay_between_measures,save_to_file=False)
+			print("CodecarbonProfiler (use a tracker from codecarbon)")
+			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			profiler = PerfProfiler(delay_between_measures)
+			print("PerfProfiler")
+			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			try:
+				profiler = NvidiaProfiler(delay_between_measures)
+				print("NvidiaProfiler")
+				print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			except :
+				print("NvidiaProfiler not supported")
 			print("total :",model.get_number_of_parameters(),"parameters")
-			print(model.run("../glacier.jpg"))
+			print(model.run(input_file))
 			print("\\======================================/")
 			print("")
 			

@@ -10,6 +10,7 @@ import sys
 import warnings
 from threading import Thread , Timer
 import subprocess as sp
+import time
 
 import numpy as np
 import cv2
@@ -24,7 +25,6 @@ import tensorflow as tf
 
 import re  # regex
 
-import time
 
 
 class PartiallySupportedFileWarning(UserWarning):
@@ -200,8 +200,12 @@ class DLLibrary(ABC):
 		"""overridden by subclass"""
 		pass
 
+	def inference_emissions(self,profiler,test_duration,input_data,safe_delay=5):
+		time.sleep(safe_delay)
+		return self._inference_emissions(profiler,test_duration,input_data)
+
 	@abstractmethod
-	def inference_emissions(self,profiler,test_duration,input_data):
+	def _inference_emissions(self,profiler,test_duration,input_data):
 		"""overridden by subclass"""
 		pass
 
@@ -348,7 +352,7 @@ class PyTorchLibrary(DLLibrary):
 							shapes_cannot_be_multiplied = True
 		self._input_shape = input_shape
 
-	def inference_emissions(self,profiler,test_duration,input_data,input_size=None,preprocess=default_preprocess):
+	def _inference_emissions(self,profiler,test_duration,input_data,input_size=None,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -489,7 +493,7 @@ class ONNXLibrary(DLLibrary):
 				total += volume(list(shape))
 		return total
 
-	def inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -609,7 +613,7 @@ class TensorFlowLibrary(DLLibrary):
 		total = self._data_loaded.count_params()
 		return total
 
-	def inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
