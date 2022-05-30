@@ -1,8 +1,5 @@
 #!/usr/bin/python
 
-from codecarbon import EmissionsTracker
-from codecarbon import track_emissions
-
 from abc import ABC, abstractmethod
 
 import os
@@ -18,9 +15,11 @@ from PIL import Image
 
 import torch
 import torch.nn as nn 
+
 import onnx
 from onnx import numpy_helper
 import onnxruntime as ort
+
 import tensorflow as tf
 
 import re  # regex
@@ -200,19 +199,19 @@ class DLLibrary(ABC):
 		"""overridden by subclass"""
 		pass
 
-	def inference_emissions(self,profiler,test_duration,input_data,safe_delay=5):
+	def inference_energy_consumption(self,profiler,test_duration,input_data,safe_delay=5):
 		time.sleep(safe_delay)
-		return self._inference_emissions(profiler,test_duration,input_data)
+		return self._inference_energy_consumption(profiler,test_duration,input_data)
 
 	@abstractmethod
-	def _inference_emissions(self,profiler,test_duration,input_data):
+	def _inference_energy_consumption(self,profiler,test_duration,input_data):
 		"""overridden by subclass"""
 		pass
 
 
 class PyTorchLibrary(DLLibrary):
 
-	def __init__(self,data_path,enable_GPU=True,model_constructor=None):
+	def __init__(self,data_path,enable_GPU=True,model_constructor=None,input_shape=None):
 		"""
 		Initialisation.
 
@@ -242,7 +241,7 @@ class PyTorchLibrary(DLLibrary):
 						+"provide the class constructor of the model using the optional argument model_constructor "
 						+"or consider using a model saved using scripted modules provided by jit.",
 						PartiallySupportedFileWarning)
-		self._input_shape = None
+		self._input_shape = input_shape
 
 		
 
@@ -309,6 +308,19 @@ class PyTorchLibrary(DLLibrary):
 		model.eval()  # To set dropout and batch normalization layers to evaluation mode before running inference
 		dummy_input = np.zeros(input_shape,dtype=np.float32)
 
+		# # tests to see if it is possible to just read the input size
+		# print(model.parameters())
+		# print(model.state_dict().keys())
+		# # get the layers labeled 0 and 1 
+		# regexp = re.compile(r'.*([0]*1(?![0-9]).*|.*(?![1-9])*[0](?![1-9]).*)')
+		# print("res:")
+		# for name in model.state_dict().keys():
+		# 	result = regexp.search(name)
+		# 	if not result is None:
+		# 		print(name)
+		# 		print(result)
+		# 		print(list(model.state_dict()[name].shape))
+
 		# Get nb of channel
 		try:
 			output = model(torch.from_numpy(dummy_input).to(self._device))
@@ -344,15 +356,28 @@ class PyTorchLibrary(DLLibrary):
 							input_dimension = int(result.group('input_dimension'))
 							output_dimension = int(result.group('output_dimension'))
 							coeff = output_dimension//input_dimension
-							# The shape is assumed to be a square so each side is multiplied by sqrt(coeff)
-							sqrt_coeff = int(np.sqrt(coeff))
-							input_shape[2] = sqrt_coeff*input_shape[2] 
-							input_shape[3] = sqrt_coeff*input_shape[3] 
+							inv_coeff = input_dimension//output_dimension
+							if coeff>=inv_coeff:
+								# The shape is assumed to be a square so each side is multiplied by sqrt(coeff)
+								sqrt_coeff = int(np.sqrt(coeff))
+								if sqrt_coeff > 1:
+									input_shape[2] = sqrt_coeff*input_shape[2] 
+									input_shape[3] = sqrt_coeff*input_shape[3] 
+								else:  # the shape cant be squared
+									input_shape[2] = coeff*input_shape[2] 
+							else :
+								# The shape is assumed to be a square so each side is divided by sqrt(1/coeff)
+								sqrt_coeff = int(np.sqrt(inv_coeff))
+								if sqrt_coeff > 1:
+									input_shape[2] = input_shape[2]//sqrt_coeff
+									input_shape[3] = input_shape[3]//sqrt_coeff 
+								else:  # the shape cant be squared
+									input_shape[2] = input_shape[2]//sqrt_coeff
 							dummy_input = np.zeros(input_shape,dtype=np.float32)
 							shapes_cannot_be_multiplied = True
 		self._input_shape = input_shape
 
-	def _inference_emissions(self,profiler,test_duration,input_data,input_size=None,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,profiler,test_duration,input_data,input_size=None,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -389,7 +414,6 @@ class PyTorchLibrary(DLLibrary):
 		
 		image = Image.open(input_data)
 		
-		#tracker = EmissionsTracker(save_to_file=False)
 		tracker = profiler
 		tracker.start()
 
@@ -493,7 +517,7 @@ class ONNXLibrary(DLLibrary):
 				total += volume(list(shape))
 		return total
 
-	def _inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,profiler,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -519,7 +543,6 @@ class ONNXLibrary(DLLibrary):
 
 		image = Image.open(input_data)
 		
-		#tracker = EmissionsTracker(save_to_file=False)
 		tracker = profiler
 		tracker.start()
 
@@ -613,7 +636,7 @@ class TensorFlowLibrary(DLLibrary):
 		total = self._data_loaded.count_params()
 		return total
 
-	def _inference_emissions(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,profiler,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -638,7 +661,6 @@ class TensorFlowLibrary(DLLibrary):
 		
 		image = Image.open(input_data)
 		
-		#tracker = EmissionsTracker(save_to_file=False)
 		tracker = profiler
 		tracker.start()
 

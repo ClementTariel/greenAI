@@ -5,7 +5,8 @@ from abc import ABC, abstractmethod
 import os
 import sys
 import warnings
-from threading import Thread , Timer
+import threading
+from threading import Thread , Timer, Lock
 import subprocess as sp
 import time
 
@@ -16,6 +17,10 @@ import numpy as np
 
 from codecarbon import EmissionsTracker
 from codecarbon import track_emissions
+
+import energyusage
+
+lock = Lock()
 
 
 def output_to_list(terminal_output):
@@ -48,6 +53,8 @@ class EnergyProfiler(ABC):
 		stop()
 		get_unit()
 		get_energy_profile()
+		take_measures()
+		battery_check()
 	"""
 
 	def __init__(self,delay):
@@ -65,22 +72,39 @@ class EnergyProfiler(ABC):
 		self._delay = delay
 		if self._delay <= 0:
 			raise ValueError("delay must be > 0 !")
-		self._profiling = False
+		with lock:
+			self._profiling = False
 
 	def _background_measures(self):
 		"""
 		This function get the energy profile every self._delay secs.
 
-		While self._profiling is True this function keeps calling itself
+		While self._profiling is True this function keeps making measures
 		and add the energy measured to the total energy consumption.
 		"""
-		if (self._profiling):
+		with lock:
+			currently_profiling = self._profiling
+		while (currently_profiling):
 			time_offset = time.time()
-			Timer(self._delay, self._background_measures).start()
-			self.get_energy_profile()
-			# just to be sure get_energy_profile has enough time to finish before any value is returned
-			self._last_background_lauch_timestamp = 2*time.time()-time_offset
+			self._get_energy_profile_thread = Thread(target=self.get_energy_profile)
+			self._get_energy_profile_thread.daemon = True
+			self._get_energy_profile_thread.start()
+			next_delay = self._delay+time_offset-time.time()
+			if next_delay > 0:
+				#print("next_delay : ",next_delay,"seconds.")
+				time.sleep(next_delay)
+			else:
+				print(-next_delay,"seconds behind schedule")
+			with lock:
+				currently_profiling = self._profiling
+		self._get_energy_profile_thread.join()
 
+	def get_energy_profile(self):
+		"""Make energy measures and keep track of the time"""
+		self.take_measures()
+		# just to be sure get_energy_profile has enough time to finish before any value is returned
+		with lock:
+			self._last_background_lauch_timestamp = time.time()
 
 	def __enter__(self):
 		"""Start the profiling"""
@@ -90,9 +114,8 @@ class EnergyProfiler(ABC):
 		"""Stop the profiling"""
 		self.stop()
 
-	def start(self):
-		"""Launches background mesuring of energy consumption."""
-		# check if the battery is charging
+	def battery_check(self):
+		"""Check if the battery is charging and if it is, warn the user."""
 		self._last_background_lauch_timestamp = time.time()
 		battery_state = "unknown"
 		try:
@@ -116,15 +139,31 @@ class EnergyProfiler(ABC):
 		print("state of the battery : ",battery_state)
 		if battery_state == "charging" or battery_state == "unknown":
 			warnings.warn("The current state of the battery is : "+battery_state+", that could strongly impact the energy profiling")
+		
+	def start(self):
+		"""Launches background mesuring of energy consumption."""
+		# Warn the user if the battery is charging
+		self.battery_check()
 		self._energy_consumption = 0
 		self._last_measure_time_stamp = None
-		self._profiling = True
-		self._background_measures()
+		with lock:
+			self._profiling = True
+		self._background_measures_thread = Thread(target=self._background_measures)
+		self._background_measures_thread.daemon = True
+		self._background_measures_thread.start()
 
 	def stop(self):
 		"""Stops background mesuring of energy consumption."""
-		self._profiling = False
-		time.sleep(np.max(self._last_background_lauch_timestamp + self._delay - time.time(),0))
+		with lock:
+			self._profiling = False
+		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
+		# if delay_before_stopping < 0:
+		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
+		# 	with lock:
+		# 		print("self._profiling :",self._profiling)
+		# 	delay_before_stopping = 0
+		# time.sleep(delay_before_stopping)
+		self._background_measures_thread.join()
 		return self._energy_consumption
 
 	def get_unit(self):
@@ -132,7 +171,7 @@ class EnergyProfiler(ABC):
 		return self._unit
 
 	@abstractmethod
-	def get_energy_profile(self):
+	def take_measures(self):
 		"""overridden by subclass"""
 		pass
 
@@ -153,7 +192,7 @@ class NvidiaProfiler(EnergyProfiler):
 		super().__init__(delay)
 		self._unit = "J"
 
-	def get_energy_profile(self):
+	def take_measures(self):
 		#########################
 		#						#
 		#	Work in progress	#
@@ -174,17 +213,22 @@ class NvidiaProfiler(EnergyProfiler):
 		print(power_value)
 		if power_value=="[N/A]":
 			warnings.warn("nvidia-smi --query-gpu=power.draw returned 'N/A'")
-			self._energy_consumption = "N/A"
+			with lock:
+				self._energy_consumption = "N/A"
 			return
 		else:
 			power_measure = int(power_value)
 		print(power_measure)
-		if self._last_measure_time_stamp is None:
-			self._last_measure_time_stamp = new_measure_time_stamp
-		self._energy_consumption += power_measure * (new_measure_time_stamp - self._last_measure_time_stamp)
+		with lock:
+			if self._last_measure_time_stamp is None:
+				self._last_measure_time_stamp = new_measure_time_stamp
+			energy = power_measure * (new_measure_time_stamp - self._last_measure_time_stamp)
+			self._energy_consumption += energy
 		print(power_measure," W")
-		print(power_measure * (new_measure_time_stamp - self._last_measure_time_stamp)," J")
-		self._last_measure_time_stamp = new_measure_time_stamp
+		print(energy," J = ",energy/(3600*1000),"kWh")
+		with lock:
+			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
+			self._last_measure_time_stamp = new_measure_time_stamp
 
 
 class PerfProfiler(EnergyProfiler):
@@ -215,12 +259,13 @@ class PerfProfiler(EnergyProfiler):
 				self._sudo_privilege = "sudo "
 		
 
-	def get_energy_profile(self):
+	def take_measures(self):
 		"""Get energy profile with perf stat (need kernel.perf_event_paranoid <=0 or roor privileges)."""
-		COMMAND = self._sudo_privilege+" perf stat -e power/energy-cores/,power/energy-ram/,power/energy-gpu/,power/energy-pkg/,power/energy-psys/ sleep "+str(self._delay)
+		with lock:
+			COMMAND = self._sudo_privilege+" perf stat -e power/energy-cores/,power/energy-ram/,power/energy-gpu/,power/energy-pkg/,power/energy-psys/ sleep "+str(self._delay)
 		try:
 		    energy_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))[3:-2]
-		    print(energy_use_info)
+		    #print(energy_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		energy = 0
@@ -231,7 +276,8 @@ class PerfProfiler(EnergyProfiler):
 				[int_part,float_part] = str_value.split(",")
 				energy += float(int_part) + float("0."+float_part)
 		self._energy_consumption += energy
-		print(energy," J")
+		print(energy," J = ",energy/(3600*1000),"kWh")
+		print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
 
 
 
@@ -252,18 +298,20 @@ class CodecarbonProfiler(EnergyProfiler):
 		self._unit = "kgCO2eq"
 		self._tracker = EmissionsTracker(measure_power_secs=delay,save_to_file=save_to_file)
 
-	def get_energy_profile(self):
+	def take_measures(self):
 		pass
 
 	def start(self):
 		"""Launches background mesuring of energy consumption."""
 		self._energy_consumption = 0
-		self._profiling = True
+		with lock:
+			self._profiling = True
 		self._tracker.start()
 
 	def stop(self):
 		"""Stops background mesuring of energy consumption."""
-		self._profiling = False
+		with lock:
+			self._profiling = False
 		self._energy_consumption = self._tracker.stop()
 		return self._energy_consumption
 
@@ -285,12 +333,13 @@ class LikwidProfiler(EnergyProfiler):
 		self._unit = "J"
 		
 
-	def get_energy_profile(self):
+	def take_measures(self):
 		"""Get energy consumption with likwid-powermeter."""
-		COMMAND = "likwid-powermeter -s "+str(self._delay)+"s"
+		with lock:
+			COMMAND = "likwid-powermeter -s "+str(self._delay)+"s"
 		try:
 		    energy_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))
-		    print(energy_use_info)
+		    #print(energy_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		energy = 0
@@ -306,5 +355,8 @@ class LikwidProfiler(EnergyProfiler):
 					energy += float(line[1].split()[0])
 			except:
 				pass
-		self._energy_consumption += energy
-		print(energy," J")
+		with lock:
+			self._energy_consumption += energy
+		print(energy," J = ",energy/(3600*1000),"kWh")
+		with lock:
+			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")

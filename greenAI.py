@@ -9,7 +9,7 @@ from threading import Thread , Timer
 import subprocess as sp
 
 import numpy as np
-import cv2
+#import cv2
 from PIL import Image
 
 import torch
@@ -142,21 +142,21 @@ if __name__ == '__main__':
 			#print(model.run("../cat.jpg"))
 			input_file = "../glacier.jpg"
 			test_duration = 20
-			delay_between_measures = 5
+			delay_between_measures = 7
 			print("start test(s) of ",test_duration," seconds (+ potential additionnal time depending on the delay between 2 measures)")
 			profiler = LikwidProfiler(delay_between_measures)
 			print("LikwidProfiler")
-			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
 			profiler = CodecarbonProfiler(delay_between_measures,save_to_file=False)
 			print("CodecarbonProfiler (use a tracker from codecarbon)")
-			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
 			profiler = PerfProfiler(delay_between_measures)
 			print("PerfProfiler")
-			print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
 			try:
 				profiler = NvidiaProfiler(delay_between_measures)
 				print("NvidiaProfiler")
-				print("emissions :",model.inference_emissions(profiler,test_duration,input_file),profiler.get_unit()," per run")
+				print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
 			except :
 				print("NvidiaProfiler not supported")
 			print("total :",model.get_number_of_parameters(),"parameters")
