@@ -105,8 +105,8 @@ numpy==1.22.3
 oauthlib==3.2.0
 olefile==0.46
 onnx==1.11.0
-# Editable install with no version control (onnx-tf==1.10.0)
--e /home/clement/pre/backend/onnx-tensorflow-main
+## Editable install with no version control (onnx-tf==1.10.0)
+#-e /home/clement/pre/backend/onnx-tensorflow-main
 onnx2keras==0.0.24
 onnx2pytorch==0.4.1
 onnxruntime-gpu==1.9.0
