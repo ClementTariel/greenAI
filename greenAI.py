@@ -140,7 +140,7 @@ if __name__ == '__main__':
 				model = model_constructor(str(sys.argv[k]))
 			print("/======================================\\")
 			#print(model.run("../cat.jpg"))
-			input_file = "../glacier.jpg"
+			input_file = "../images/glacier.jpg"
 			test_duration = 20
 			delay_between_measures = 7
 			print("start test(s) of ",test_duration," seconds (+ potential additionnal time depending on the delay between 2 measures)")
