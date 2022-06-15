@@ -29,7 +29,6 @@ from energyprofiler import *
 from codecarbon import EmissionsTracker
 from codecarbon import track_emissions
 
-
 # Execute when the module is not initialized from an import statement.
 if __name__ == '__main__':	
 
@@ -142,8 +141,14 @@ if __name__ == '__main__':
 			#print(model.run("../cat.jpg"))
 			input_file = "../images/glacier.jpg"
 			test_duration = 20
-			delay_between_measures = 7
+			delay_between_measures = 5
 			print("start test(s) of ",test_duration," seconds (+ potential additionnal time depending on the delay between 2 measures)")
+			profiler = PyJoulesProfiler(delay_between_measures)
+			print("PyJoulesProfiler")
+			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			profiler = EnergyUsageProfiler(delay_between_measures)
+			print("EnergyUsageProfiler")
+			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
 			profiler = LikwidProfiler(delay_between_measures)
 			print("LikwidProfiler")
 			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
@@ -167,6 +172,6 @@ if __name__ == '__main__':
 	else :
 		print("")
 		print("No arguments found")
-		print("Usage: python greenAI.py file_names")
+		print("Usage: python greenAI.py paths/to/model/files")
 		print("")
 

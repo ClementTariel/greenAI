@@ -20,6 +20,17 @@ from codecarbon import track_emissions
 
 import energyusage
 
+from pyJoules.energy_meter import EnergyContext
+from pyJoules.device.rapl_device import RaplPackageDomain
+from pyJoules.device.rapl_device import RaplDramDomain
+from pyJoules.device.rapl_device import RaplUncoreDomain
+from pyJoules.device.rapl_device import RaplCoreDomain
+from pyJoules.energy_meter import measure_energy
+from pyJoules.handler.csv_handler import CSVHandler
+
+import torch.multiprocessing as mp
+
+
 lock = Lock()
 
 
@@ -169,6 +180,16 @@ class EnergyProfiler(ABC):
 	def get_unit(self):
 		"""Return a string with the unit used"""
 		return self._unit
+
+	def evaluate(self,f,*args,**kwargs):
+		"""Return a string with the unit used"""
+		self.start()
+		t_start = time.time()
+		result = f(*args,**kwargs)
+		self.stop()
+		t_stop = time.time()
+		delta_t = t_stop - t_start
+		return delta_t,self._energy_consumption,result
 
 	@abstractmethod
 	def take_measures(self):
@@ -331,7 +352,6 @@ class LikwidProfiler(EnergyProfiler):
 		"""
 		super().__init__(delay)
 		self._unit = "J"
-		
 
 	def take_measures(self):
 		"""Get energy consumption with likwid-powermeter."""
@@ -360,3 +380,200 @@ class LikwidProfiler(EnergyProfiler):
 		print(energy," J = ",energy/(3600*1000),"kWh")
 		with lock:
 			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
+
+
+class PyJoulesProfiler(EnergyProfiler):
+
+	def __init__(self,delay,cpu_domains=[0],ram_domains=[0]):
+		"""
+		Initialisation.
+
+		Call the initialization of the parent class.
+		
+		Args:
+			delay: float
+		    	A float to give the delay between 2 consecutive power consumption measures
+
+		"""
+		super().__init__(delay)
+		self._unit = "uJ"
+		self._id = int(time.time()*10**9)
+		self._csv_temp_file_name  = '.temp_result'+str(self._id)+'.csv'
+		self._csv_handler = CSVHandler(self._csv_temp_file_name)
+		self._domains = []
+		for i in cpu_domains:
+			self._domains.append(RaplPackageDomain(i))
+		for i in ram_domains:
+			self._domains.append(RaplDramDomain(i))
+		
+	def take_measures(self):
+		print("energy profiling...")
+
+	def _background_measures(self):
+		"""
+		This function get the energy profile every self._delay secs.
+
+		While self._profiling is True this function keeps making measures
+		and add the energy measured to the total energy consumption.
+		"""
+		with EnergyContext(handler=self._csv_handler, domains=self._domains, start_tag='start') as ctx:
+			measures_count = 0
+			with lock:
+				currently_profiling = self._profiling
+			while (currently_profiling):
+				time_offset = time.time()
+				ctx.record(tag='measure_'+str(measures_count))
+				self._get_energy_profile_thread = Thread(target=self.get_energy_profile)
+				self._get_energy_profile_thread.daemon = True
+				self._get_energy_profile_thread.start()
+				next_delay = self._delay+time_offset-time.time()
+				if next_delay > 0:
+					#print("next_delay : ",next_delay,"seconds.")
+					time.sleep(next_delay)
+				else:
+					print(-next_delay,"seconds behind schedule")
+				with lock:
+					currently_profiling = self._profiling
+				measures_count += 1
+			ctx.record(tag='not_profiling')
+			self._get_energy_profile_thread.join()
+
+	def stop(self):
+		"""Stops background mesuring of energy consumption."""
+		with lock:
+			self._profiling = False
+		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
+		# if delay_before_stopping < 0:
+		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
+		# 	with lock:
+		# 		print("self._profiling :",self._profiling)
+		# 	delay_before_stopping = 0
+		# time.sleep(delay_before_stopping)
+		self._background_measures_thread.join()
+		self._csv_handler.save_data()
+		energy = 0
+		first_line = True
+		with open(self._csv_temp_file_name, encoding = 'utf-8') as f:
+			for line in f:
+				if first_line:
+					first_line = False
+				else:
+					output = line.split(";")
+					print()
+					print(output[1]+" : "+output[3]+" "+self._unit)
+					energy += float(output[3])
+		self._energy_consumption = energy
+		return self._energy_consumption
+
+
+class EnergyUsageProfiler(EnergyProfiler):
+
+	def __init__(self,delay):
+		"""
+		Initialisation.
+
+		Call the initialization of the parent class.
+		
+		Args:
+			delay: float
+		    	A float to give the delay between 2 consecutive power consumption measures
+		    	It is not used due to the architecture of energyusage but it need to be given
+		    	to avoid a crash and to give a time reference to threads
+
+		"""
+		super().__init__(delay)
+		self._unit = "kWh"
+
+	def take_measures(self):
+		pass
+
+	def evaluate(self,f,*args,**kwargs):
+		"""
+		Call energyusage.evaluate to get energy consumption of f
+
+		Args:
+			f: function
+		    	The function to evaluate
+		"""
+		try:
+		    mp.set_start_method('spawn')
+		except RuntimeError:
+		    pass
+		time_used, energy, result_of_f = energyusage.evaluate(f,*args,**kwargs,energyOutput=True)
+		print(time_used, energy, result_of_f)
+		print(energy," kWh = ",energy*(3600*1000)," J")
+		self._energy_consumption = energy
+		return time_used, energy, result_of_f
+
+# 	def _wait(self,t):
+# 		"""
+# 		Wait until the end of thread t
+
+# 		Args:
+# 			t: thread
+# 		    	the thread to evaluate
+# 		"""
+# 		print("waiting begin")
+# 		print(t.name)
+# 		print(time.time())
+# 		t.join()
+# 		print(time.time())
+# 		print("waiting end")
+		
+# 	def _evaluate(self,t):
+# 		"""
+# 		Call energyusage.evaluate to get energy consumption of f
+
+# 		Args:
+# 			f: function
+# 		    	The function to evaluate
+# 		    t:
+# 		    	the thread to evaluate
+# 		"""
+# 		print("evaluate begin")
+# 		time_used, energy, result_of_f = energyusage.evaluate(self._wait,t,energyOutput=True)
+# 		print(time_used, energy, result_of_f)
+# 		self._energy_consumption = energy
+# 		print("evaluate end")
+
+# 	def start(self):
+# 		"""Launches background mesuring of energy consumption."""
+# 		# Warn the user if the battery is charging
+# 		self.battery_check()
+# 		print("start begin")
+# 		self._energy_consumption = 0
+# 		self._last_measure_time_stamp = None
+# 		with lock:
+# 			self._profiling = True
+# 		self._background_measures_thread = Thread(name="background", target=self._background_measures)
+# 		self._background_measures_thread.daemon = True
+# 		self._background_measures_thread.start()
+# 		print("start middle")
+		
+# 		#self._evaluate_thread = Thread(target=self._evaluate, args=(self._background_measures_thread,))
+# 		self._evaluate_thread = Thread(target=lambda t=self._background_measures_thread: self._evaluate(t))
+# 		self._evaluate_thread.daemon = True
+# 		self._evaluate_thread.start()
+# 		print("start end")
+
+# 	def stop(self):
+# 		"""Stops background mesuring of energy consumption."""
+# 		with lock:
+# 			self._profiling = False
+# 		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
+# 		# if delay_before_stopping < 0:
+# 		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
+# 		# 	with lock:
+# 		# 		print("self._profiling :",self._profiling)
+# 		# 	delay_before_stopping = 0
+# 		# time.sleep(delay_before_stopping)
+# 		print("stop before joinning")
+# 		self._background_measures_thread.join()
+# 		print("stop end")
+# 		return self._energy_consumption
+
+
+
+
+
+	

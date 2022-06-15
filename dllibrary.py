@@ -25,7 +25,6 @@ import tensorflow as tf
 import re  # regex
 
 
-
 class PartiallySupportedFileWarning(UserWarning):
 	pass
 
@@ -199,12 +198,17 @@ class DLLibrary(ABC):
 		"""overridden by subclass"""
 		pass
 
-	def inference_energy_consumption(self,profiler,test_duration,input_data,safe_delay=5):
+	def inference_energy_consumption(self,profiler,test_duration,input_data,safe_delay=5,**kwargs):
 		time.sleep(safe_delay)
-		return self._inference_energy_consumption(profiler,test_duration,input_data)
+		filtered_kwargs = {}
+		for key, value in kwargs.items():
+			if key == "preprocess" and hasattr(value, '__call__'): # It is callable so it is a function
+				filtered_kwargs[key] = value
+		delta_t, energy, nb_iter = profiler.evaluate(self._inference_energy_consumption,test_duration,input_data,**filtered_kwargs)
+		return energy/nb_iter
 
 	@abstractmethod
-	def _inference_energy_consumption(self,profiler,test_duration,input_data):
+	def _inference_energy_consumption(self,test_duration,input_data):
 		"""overridden by subclass"""
 		pass
 
@@ -377,14 +381,13 @@ class PyTorchLibrary(DLLibrary):
 							shapes_cannot_be_multiplied = True
 		self._input_shape = input_shape
 
-	def _inference_energy_consumption(self,profiler,test_duration,input_data,input_size=None,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
 		Args:
 	    	test_duration (float): the duration of the tests in seconds
 			input_data : Contains the path to the data to feed to the model
-	    	input_size (list[int]): the expected shape of the input (None by default if unkown)
 	    	preprocess (<class 'function'>): the preprocess to apply to the input data 
 	    									(a default preprocess is applied if none is specified)
 	    Returns:
@@ -413,9 +416,6 @@ class PyTorchLibrary(DLLibrary):
 		input_shape = self._input_shape		
 		
 		image = Image.open(input_data)
-		
-		tracker = profiler
-		tracker.start()
 
 		t_start = time.time()
 		nb_iter = 0
@@ -425,9 +425,8 @@ class PyTorchLibrary(DLLibrary):
 			input_array = preprocess(image,input_shape)
 			output = model(torch.from_numpy(input_array).to(self._device))
 
-		emissions: float = tracker.stop()
 		self.free_model_data()
-		return emissions/nb_iter
+		return nb_iter
 
 	def run(self,input_data,input_size=None,preprocess=default_preprocess):
 		#########################
@@ -517,7 +516,7 @@ class ONNXLibrary(DLLibrary):
 				total += volume(list(shape))
 		return total
 
-	def _inference_energy_consumption(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -543,9 +542,6 @@ class ONNXLibrary(DLLibrary):
 
 		image = Image.open(input_data)
 		
-		tracker = profiler
-		tracker.start()
-
 		t_start = time.time()
 		nb_iter = 0
 		
@@ -554,9 +550,8 @@ class ONNXLibrary(DLLibrary):
 			input_array = preprocess(image,input_shape)
 			_ = ort_sess.run(None, {input_name: input_array})
 
-		emissions: float = tracker.stop()
 		self.free_model_data()
-		return emissions/nb_iter
+		return nb_iter
 
 	def run(self,input_data,preprocess=default_preprocess):
 		#########################
@@ -636,7 +631,7 @@ class TensorFlowLibrary(DLLibrary):
 		total = self._data_loaded.count_params()
 		return total
 
-	def _inference_energy_consumption(self,profiler,test_duration,input_data,preprocess=default_preprocess):
+	def _inference_energy_consumption(self,test_duration,input_data,preprocess=default_preprocess):
 		"""
 		Run the inference model several times to measure the average equivalence of CO2 emissions of a run.
 
@@ -661,9 +656,6 @@ class TensorFlowLibrary(DLLibrary):
 		
 		image = Image.open(input_data)
 		
-		tracker = profiler
-		tracker.start()
-
 		t_start = time.time()
 		nb_iter = 0
 
@@ -673,9 +665,8 @@ class TensorFlowLibrary(DLLibrary):
 				input_array = preprocess(image,input_shape)
 				_ = model(input_array, training=False)
 
-		emissions: float = tracker.stop()
 		self.free_model_data()
-		return emissions/nb_iter
+		return nb_iter
 
 
 	def run(self,input_data,preprocess=default_preprocess):
