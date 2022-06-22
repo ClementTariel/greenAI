@@ -10,11 +10,13 @@ import subprocess as sp
 import time
 
 import numpy as np
-import cv2
+
 from PIL import Image
 
 import torch
 import torch.nn as nn 
+import torchvision
+import torchvision.transforms as transforms
 
 import onnx
 from onnx import numpy_helper
@@ -71,7 +73,7 @@ def default_preprocess(image,input_shape):
 		input_shape (list[int]): the expected shape of the image after the preprocess
 
 	Returns:
-		numpy.array[numpy.float32]: An array with the data of the image in NCHW format
+		numpy.array[numpy.float32]: An array with the data of the image
 	
 	"""
 	# It is assumed number of channel < size of the image
@@ -143,18 +145,25 @@ class DLLibrary(ABC):
 	Attributes:
 		self._data_path : str
 		    A string to reprensent the path to the file where the model is stored
+		self._enable_GPU : bool
+			If set to False, prevent the model to try to use a GPU
 		self._data_loaded : 
 		    The model once it is loaded
 		self._number_of_parameters : int
 		    The number of parameters
+		self._inference_energy_consumption : float
+			The energy consumed during the profiling of inference mode
 
 	Methods:
 		__init__()
-		get_number_of_parameters()
-		free_model_data()
 		_load_data(data_path)
 		_compute_number_of_parameters()
+		_inference_energy_consumption(test_duration,input_data)
+		get_number_of_parameters()
+		free_model_data()
 		run(input_data)
+		inference_energy_consumption(profiler,test_duration,input_data,safe_delay,**kwargs):
+		train(data_path) # work in progress
 
 	"""
 	
@@ -199,16 +208,40 @@ class DLLibrary(ABC):
 		pass
 
 	def inference_energy_consumption(self,profiler,test_duration,input_data,safe_delay=5,**kwargs):
+		"""
+		Measure the average energy consumption on an inference run
+
+		Wait for safe_delay seconds to avoid interference.
+		Then launches inference runs during test_duration seconds.
+
+		Args:
+			profiler (EnergyProfiler): The profiler used to measure energy consumption
+			test_duration (float): The minimum duration of the tests
+			input_data (str): Contains the path to the data to feed to the model
+			safe_delay (float): The time (in seconds) of inactivity before the beginning of the tests
+			**kwargs: The optional arguments of the inference run function of the model
+			
+		Returns:
+			float: The value of the average energy consumption per run (the unit depends on the profiler used)
+		
+		"""
 		time.sleep(safe_delay)
 		filtered_kwargs = {}
 		for key, value in kwargs.items():
 			if key == "preprocess" and hasattr(value, '__call__'): # It is callable so it is a function
 				filtered_kwargs[key] = value
 		delta_t, energy, nb_iter = profiler.evaluate(self._inference_energy_consumption,test_duration,input_data,**filtered_kwargs)
+		print("nb iter : ",nb_iter)
+		print("energy : ",energy)
 		return energy/nb_iter
 
 	@abstractmethod
 	def _inference_energy_consumption(self,test_duration,input_data):
+		"""overridden by subclass"""
+		pass
+
+	@abstractmethod
+	def train(self,output_file,train_data,test_data):
 		"""overridden by subclass"""
 		pass
 
@@ -287,11 +320,6 @@ class PyTorchLibrary(DLLibrary):
 		return total
 
 	def _define_input_shape(self, input_shape=[1,1,1,1]):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################
 		"""
 		Find the input shape of accepted by the PyTorch model
 
@@ -429,11 +457,6 @@ class PyTorchLibrary(DLLibrary):
 		return nb_iter
 
 	def run(self,input_data,input_size=None,preprocess=default_preprocess):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################		
 		"""
 		Run the inference model.
 
@@ -475,6 +498,98 @@ class PyTorchLibrary(DLLibrary):
 		self.free_model_data()
 		return output
 
+	def train(self,output_file,train_data_path,test_data_path,batch_size=1,epochs_number=1,print_every=10,optimizer=None,scheduler=None):
+		"""train"""
+		self._load_data(self._data_path)
+		model = self._data_loaded
+		if not self._is_jit_model:
+			if self._model_constructor is None:
+				warnings.warn("The data given in argument does not contain a class to instanciate the model, "
+						+"therefore the run function will return None.\nTo avoid this issue, "
+						+"provide the class constructor of the model using the optional argument model_constructor "
+						+"or consider using a model saved using scripted modules provided by jit.",
+						PartiallySupportedFileWarning)
+				return
+			else:
+				model = self._model_constructor()
+				model.load_state_dict(self._data_loaded)
+		
+		device = self._device
+		model.to(device)
+
+		self._define_input_shape()
+		input_shape = self._input_shape	
+
+		preprocess = transforms.Compose([
+		    transforms.Resize(input_shape[-2]), # in -2 it's never the batchsize neither the channel number
+		    transforms.CenterCrop(input_shape[-2]),
+		    transforms.ToTensor(),
+		    #transforms.Normalize(mean=[0.3418, 0.3126, 0.3224], std=[0.1627, 0.1632, 0.1731])
+		])
+
+		trainset = torchvision.datasets.ImageFolder(train_data_path, transform=preprocess)
+		train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, drop_last=False)
+
+		testset = torchvision.datasets.ImageFolder(test_data_path, transform=preprocess)
+		test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=True, drop_last=True)
+
+		criterion = nn.CrossEntropyLoss()
+		if optimizer is None:
+			optimizer = optim.SGD(model.parameters(), lr=0.01, momentum = 0.9)
+		if scheduler is None:
+			scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 5, gamma = 0.1)
+		epochs = epochs_number
+		steps = 0
+		running_loss = 0
+		train_losses = []
+		test_losses = []
+
+		start_time = time.time()
+		for epoch in range(epochs):
+		    steps = 0
+		    for inputs, labels in train_loader:
+		        steps += 1
+		        inputs, labels = inputs.to(device), labels.to(device)
+		       
+		        optimizer.zero_grad()
+		        
+		        logps = model.forward(inputs)
+		        loss = criterion(logps, labels)
+		        loss.backward()
+		        optimizer.step()
+		        
+		        running_loss += loss.item()
+		        
+		        if steps % print_every == 0:
+		            print("steps : ",steps,", delta time : ",(time.time()-start_time)*10//1/10)
+		            test_loss = 0
+		            accuracy_t = 0
+		            model.eval()
+		            with torch.no_grad():
+		                for inputs_val, labels_val in test_loader:
+		                    inputs_val, labels_val = inputs_val.to(device), labels_val.to(device)
+		                    
+		                    logps_t = model.forward(inputs_val)
+		                    batch_loss = criterion(logps_t, labels_val)
+		                    test_loss += batch_loss.item()
+		                    
+		                    top_p, top_class = logps_t.topk(1, dim=1)
+		                    equals = top_class == labels_val.view(*top_class.shape)
+		                    accuracy_t += torch.mean(equals.type(torch.FloatTensor)).item()
+		            
+		            print(f"Epoch {epoch+1}/{epochs}.. "
+		                  f"Train loss: {running_loss/print_every:.3f}.. "
+		                  f"Test loss: {test_loss/len(test_loader):.3f}.. "
+		                  f"Test accuracy: {accuracy_t/len(test_loader):.3f}")
+		            running_loss = 0
+		            model.train()
+		    scheduler.step()
+		    test_losses.append(test_loss/len(test_loader))
+		    train_losses.append(running_loss/len(train_loader))
+
+		    torch.save(model.state_dict(), output_file)
+		    print("finito")
+		
 
 class ONNXLibrary(DLLibrary):
 
@@ -535,6 +650,7 @@ class ONNXLibrary(DLLibrary):
 		elif (self._enable_GPU and not "CUDAExecutionProvider" in providers):
 			warnings.warn("CUDAExecutionProvider not found, there is no GPU available. ",GPUNotFoundWarning)
 		
+		print("providers : ",providers)
 		ort_sess = ort.InferenceSession(self._data_path, None, providers=providers)
 		
 		input_shape = ort_sess.get_inputs()[0].shape
@@ -554,11 +670,6 @@ class ONNXLibrary(DLLibrary):
 		return nb_iter
 
 	def run(self,input_data,preprocess=default_preprocess):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################
 		"""
 		Run the inference model.
 
@@ -587,6 +698,10 @@ class ONNXLibrary(DLLibrary):
 
 		self.free_model_data()
 		return output
+
+	def train(self,output_file,train_data,test_data):
+		""""""
+		pass
 
 
 class TensorFlowLibrary(DLLibrary):
@@ -670,11 +785,6 @@ class TensorFlowLibrary(DLLibrary):
 
 
 	def run(self,input_data,preprocess=default_preprocess):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################
 		"""
 		Run the inference model.
 
@@ -706,6 +816,9 @@ class TensorFlowLibrary(DLLibrary):
 		self.free_model_data()
 		return output
 
+	def train(self,output_file,train_data,test_data):
+		""""""
+		pass
 
 
 class DLModelFactory:
@@ -717,7 +830,7 @@ class DLModelFactory:
 		self._creators : dict of str: class constructor
 			A dictionnary with :
 				input: The extension of a DL model format (example : ".pt")
-		    	output: The DLLibrary sub-class that correpond to this format
+		    	output: The DLLibrary sub-class constructor that correpond to this format
 
 	Methods:
 		__init__()
@@ -741,7 +854,7 @@ class DLModelFactory:
 		Map a class constructor to a file extension.
 
 		Args:
-			format (str): Contains the extension corresponding to a file format
+			format (str): Contains the extension corresponding to a file format (for example ".pt")
 			creator (class constructor): Contains the constructor of the class correponding to format
 
 		"""

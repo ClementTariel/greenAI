@@ -30,7 +30,6 @@ from pyJoules.handler.csv_handler import CSVHandler
 
 import torch.multiprocessing as mp
 
-
 lock = Lock()
 
 
@@ -54,6 +53,17 @@ class EnergyProfiler(ABC):
 	Attributes:
 		self._delay: float
 		    A float to give the delay between 2 consecutive power consumption measures
+		self._energy_consumption: float
+			Keeps track of the energy consumption measured
+		self._profiling: bool
+			Indicates whether the profiler is currently profiling or not
+		self._get_energy_profile_thread: Thread
+			A Thread that make a single reading in parallel of the execution
+		self._last_background_lauch_timestamp: float
+			A float to keep track of time and make sure energy measurements are realized regularly
+			It is refreshed every time a measurement is realized
+		self._background_measures_thread: Thread
+			The thread that wait and launch regularly measurements
 
 	Methods:
 		__init__(delay)
@@ -66,6 +76,7 @@ class EnergyProfiler(ABC):
 		get_energy_profile()
 		take_measures()
 		battery_check()
+		evaluate(f,*args,**kwargs)
 	"""
 
 	def __init__(self,delay):
@@ -384,7 +395,7 @@ class LikwidProfiler(EnergyProfiler):
 
 class PyJoulesProfiler(EnergyProfiler):
 
-	def __init__(self,delay,cpu_domains=[0],ram_domains=[0]):
+	def __init__(self,delay,cpu_domains=[0],ram_domains=[0],gpu_domains=[]):
 		"""
 		Initialisation.
 
@@ -403,6 +414,8 @@ class PyJoulesProfiler(EnergyProfiler):
 		self._domains = []
 		for i in cpu_domains:
 			self._domains.append(RaplPackageDomain(i))
+		for i in gpu_domains:
+			self._domains.append(RaplUncoreDomain(i))
 		for i in ram_domains:
 			self._domains.append(RaplDramDomain(i))
 		
