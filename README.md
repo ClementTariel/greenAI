@@ -7,22 +7,21 @@ This project provides an API to run some general functions of a CNN model based 
 - CNN API :
 	Support ONNX, PyTorch and TensorFlow models with a square image input
 	Supported functions on a model :
-		- count of the number of parameters of the model
-		- run the model in inference mode
-		- measure the average energy consumption during inference mode (need the Energy Profiler API to do so)
+	- count of the number of parameters of the model
+	- run the model in inference mode		- measure the average energy consumption during inference mode (need the Energy Profiler API to do so)
 
 - Energy Profiler API :
 	Need the absence of background process to avoid interference (else the background process will use the computer resources and increase the energy consumption)
 	Supported features :
-		- measures the energy consumed during the execution of a given function
-		- measures the energy consumed in a context (or between a start and a stop point)
+	- measures the energy consumed during the execution of a given function
+	- measures the energy consumed in a context (or between a start and a stop point)
 
 ## how to install and use
 
 The project have been to designed to be supported on Linux machines.
 The project needs :
-	- onnx, onnxruntime, torch, torchvision, tensforflow, PIL, numpy for the CNN model API
-	- codecarbon, energyusage, pyjoules, torch for the energy profiler API
+- onnx, onnxruntime, torch, torchvision, tensforflow, PIL, numpy for the CNN model API
+- codecarbon, energyusage, pyjoules, torch for the energy profiler API
 
 example of the use of the CNN model API :
 ```
@@ -89,5 +88,3 @@ model = model_constructor(path_to_the_model)
 For some PyTorch models a reference to the class of the model is needed to build it.
 
 When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5).
-
-The NvidiaProfiler is not complete yet

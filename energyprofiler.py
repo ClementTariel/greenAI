@@ -168,6 +168,7 @@ class EnergyProfiler(ABC):
 		self.battery_check()
 		self._energy_consumption = 0
 		self._last_measure_time_stamp = None
+		self._last_measure_power = None
 		with lock:
 			self._profiling = True
 		self._background_measures_thread = Thread(target=self._background_measures)
@@ -210,7 +211,11 @@ class EnergyProfiler(ABC):
 
 class NvidiaProfiler(EnergyProfiler):
 
-	def __init__(self,delay):
+	POWER_COMMAND = "nvidia-smi --query-gpu=power.draw --format=csv"
+	MEMORY_COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv"
+	UTIL_COMMAND = "nvidia-smi --query-gpu=utilization.gpu --format=csv"
+
+	def __init__(self,delay,power_cap=75):
 		"""
 		Initialisation.
 
@@ -223,19 +228,54 @@ class NvidiaProfiler(EnergyProfiler):
 		"""
 		super().__init__(delay)
 		self._unit = "J"
+		self.power_cap=power_cap
+		self._using_util = False
+		self.check_power_readings_availibility()
+
+
+	def check_power_readings_availibility(self):
+		"""
+		Test if nvidia-smi can read power draw.
+
+		Try to read power consumption from nvidia-smi.
+		If it works set the power reading command to read power draw.
+		If it does not, set the power reading command to read GPU utilization.
+		From the percentage of utilization and the power cap, an estimation
+		of the power usage can be made
+		"""
+		print("Making sure GPU readings are available ...")
+		power_readings_available = True
+		self._COMMAND = __class__.POWER_COMMAND
+		try:
+		    power_use_info = output_to_list(sp.check_output(self._COMMAND.split(),stderr=sp.STDOUT))
+		    print(power_use_info)
+		except sp.CalledProcessError as e:
+			power_readings_available = False
+			warnings.warn("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
+			#raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
+		if power_readings_available:
+			power_value = power_use_info[1].split()[0]
+			print("Readings available :",power_value)
+			if power_value=="[N/A]":
+				warnings.warn("'{}' returns 'N/A'".format(self._COMMAND))
+				power_readings_available = False
+		if not power_readings_available:
+			print("power reading not available")
+			self._COMMAND = __class__.UTIL_COMMAND
+			self._using_util = True
+			try:
+			    power_use_info = output_to_list(sp.check_output(self._COMMAND.split(),stderr=sp.STDOUT))
+			except sp.CalledProcessError as e:
+				raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 
 	def take_measures(self):
-		#########################
-		#						#
-		#	Work in progress	#
-		#						#
-		#########################
+		"""
+		Get power profile using nvidia-smi and deduce the energy profile
+		"""
 
-		"""Get power profile using nvidia-smi and deduce the energy profile"""
-
-		#COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv"
 		print("TEMPORARY VALUE FOR TEST ONLY. THESE VALUES AREN'T THE REAL POWER MESAURES")
-		COMMAND = "nvidia-smi --query-gpu=power.draw --format=csv"
+		COMMAND = self._COMMAND
+		new_measure_time_stamp = time.time()
 		try:
 		    power_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))
 		    print(power_use_info)
@@ -244,23 +284,29 @@ class NvidiaProfiler(EnergyProfiler):
 		power_value = power_use_info[1].split()[0]
 		print(power_value)
 		if power_value=="[N/A]":
-			warnings.warn("nvidia-smi --query-gpu=power.draw returned 'N/A'")
+			warnings.warn("'{}' 'N/A'".format(COMMAND))
 			with lock:
 				self._energy_consumption = "N/A"
 			return
 		else:
-			power_measure = int(power_value)
-		print(power_measure)
+			power_measure = float(power_value)
 		with lock:
 			if self._last_measure_time_stamp is None:
 				self._last_measure_time_stamp = new_measure_time_stamp
-			energy = power_measure * (new_measure_time_stamp - self._last_measure_time_stamp)
+				self._last_measure_power = power_measure
+			energy = (new_measure_time_stamp - self._last_measure_time_stamp) * (self._last_measure_power + power_measure) / 2
+			if self._using_util:
+				energy *= self.power_cap/100
 			self._energy_consumption += energy
-		print(power_measure," W")
+		if self._using_util:
+			print("~",power_measure*self.power_cap/100," W")
+		else:
+			print(power_measure," W")
 		print(energy," J = ",energy/(3600*1000),"kWh")
 		with lock:
 			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
 			self._last_measure_time_stamp = new_measure_time_stamp
+			self._last_measure_power = power_measure
 
 
 class PerfProfiler(EnergyProfiler):
