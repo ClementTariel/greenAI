@@ -10,6 +10,7 @@ This project provides an API to run some general functions of a CNN model based 
 	- count of the number of parameters of the model
 	- run the model in inference mode		
 	- measure the average energy consumption during inference mode (need the Energy Profiler API to do so)
+	- training is not supported yet (work in progress)
 
 - Energy Profiler API :
 	Need the absence of background process to avoid interference (else the background process will use the computer resources and increase the energy consumption)
