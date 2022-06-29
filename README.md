@@ -10,7 +10,8 @@ This project provides an API to run some general functions of a CNN model based 
 	- count of the number of parameters of the model
 	- run the model in inference mode		
 	- measure the average energy consumption during inference mode (need the Energy Profiler API to do so)
-	- training is not supported yet (work in progress)
+	- training (except for ONNX)
+	- measure the average energy consumption during training (need the Energy Profiler API to do so)
 
 - Energy Profiler API :
 	Need the absence of background process to avoid interference (else the background process will use the computer resources and increase the energy consumption)
@@ -22,7 +23,7 @@ This project provides an API to run some general functions of a CNN model based 
 
 The project have been to designed to be supported on Linux machines.
 The project needs :
-- onnx, onnxruntime, torch, torchvision, tensforflow, PIL, numpy for the CNN model API
+- onnx, onnxruntime, torch, torchvision, tensforflow, PIL, numpy, sklearn, tqdm for the CNN model API
 - codecarbon, energyusage, pyjoules, torch for the energy profiler API
 
 example of the use of the CNN model API :
@@ -59,7 +60,7 @@ print("The result is",result,", it took",total_time,"seconds and consumed",energ
 
 Note that to use most of the profilers you will need to run your script with root privileges.
 
-The greenAI.py script can be used as a test (to make sure ther are no import errors for example).
+The greenAI.py script can be used as a test (to make sure there are no import errors for example).
 
 ## how to add new model type and new profilers
 
@@ -87,6 +88,8 @@ model = model_constructor(path_to_the_model)
 
 ## known issues
 
-For some PyTorch models a reference to the class of the model is needed to build it.
+- For some PyTorch models a reference to the class of the model is needed to build it.
+- When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5).
+-training is not supported for ONNX models
 
-When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5).
+

@@ -30,6 +30,8 @@ from pyJoules.handler.csv_handler import CSVHandler
 
 import torch.multiprocessing as mp
 
+import multiprocessing
+
 lock = Lock()
 
 
@@ -522,6 +524,7 @@ class PyJoulesProfiler(EnergyProfiler):
 					print(output[1]+" : "+output[3]+" "+self._unit)
 					energy += float(output[3])
 		self._energy_consumption = energy
+		os.remove(self._csv_temp_file_name)
 		return self._energy_consumption
 
 
@@ -556,6 +559,10 @@ class EnergyUsageProfiler(EnergyProfiler):
 		"""
 		try:
 		    mp.set_start_method('spawn')
+		except RuntimeError:
+		    pass
+		try:
+		    multiprocessing.set_start_method('spawn', force=True)
 		except RuntimeError:
 		    pass
 		time_used, energy, result_of_f = energyusage.evaluate(f,*args,**kwargs,energyOutput=True)
