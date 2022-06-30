@@ -22,9 +22,7 @@ This project provides an API to run some general functions of a CNN model based 
 ## how to install and use
 
 The project have been to designed to be supported on Linux machines.
-The project needs :
-- onnx, onnxruntime, torch, torchvision, tensforflow, PIL, numpy, sklearn, tqdm for the CNN model API
-- codecarbon, energyusage, pyjoules, torch for the energy profiler API
+The requirements for the project are in requirement.txt
 
 example of the use of the CNN model API :
 ```
