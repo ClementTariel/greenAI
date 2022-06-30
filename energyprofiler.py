@@ -225,7 +225,10 @@ class NvidiaProfiler(EnergyProfiler):
 		
 		Args:
 			delay: float
-		    	A float to give the delay between 2 consecutive power consumption measures
+		    	A float to give the delay between 2 consecutive power consumption measures.
+		    power_cap: float
+		    	A float to give the maximum power usage of the GPU used.
+		    	It is only used if power readings are not available.
 
 		"""
 		super().__init__(delay)
@@ -243,7 +246,9 @@ class NvidiaProfiler(EnergyProfiler):
 		If it works set the power reading command to read power draw.
 		If it does not, set the power reading command to read GPU utilization.
 		From the percentage of utilization and the power cap, an estimation
-		of the power usage can be made
+		of the power usage can be made.
+		Then the energy consumption can be apprimated by the average power draw
+		times the duration of the execution.
 		"""
 		print("Making sure GPU readings are available ...")
 		power_readings_available = True
@@ -273,9 +278,13 @@ class NvidiaProfiler(EnergyProfiler):
 	def take_measures(self):
 		"""
 		Get power profile using nvidia-smi and deduce the energy profile
+
+		Use nvidia-smi to query power draw of the GPU.
+		In case these readings are not available, it reads the GPU utilisation instead.
+		By multipliying the percentage of utilisation by the maximum power usage of the GPU
+		it produces an estimation of the actual power draw.
 		"""
 
-		print("TEMPORARY VALUE FOR TEST ONLY. THESE VALUES AREN'T THE REAL POWER MESAURES")
 		COMMAND = self._COMMAND
 		new_measure_time_stamp = time.time()
 		try:

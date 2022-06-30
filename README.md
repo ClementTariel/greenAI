@@ -31,6 +31,8 @@ example of the use of the CNN model API :
 path_to_the_model = "path/to/the/model.onnx"
 
 factory = DLModelFactory()
+# The predefined format are :
+# ".pt", ".pt" saved with jit, ".onnx", ".h5" and TensorFlow SavedModels (ending with "/")
 factory.register_predefined_formats()
 
 model_constructor = factory.get_model(path_to_the_model)
@@ -51,7 +53,7 @@ def fib(n,show_every_step=False):
 		n = n-1
 	return a
 
-delay_between_measures = 0.1 # in seconds
+delay_between_measures = 0.1  # in seconds
 profiler = PyJoulesProfiler(delay_between_measures)
 n = 10**8
 total_time, energy_consumed, result = profiler.evaluate(fib,n,show_every_step=True)
