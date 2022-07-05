@@ -79,6 +79,8 @@ class EnergyProfiler(ABC):
 		take_measures()
 		battery_check()
 		evaluate(f,*args,**kwargs)
+		get_device_name()
+		get_max_power()
 	"""
 
 	def __init__(self,delay):
@@ -210,12 +212,20 @@ class EnergyProfiler(ABC):
 		"""overridden by subclass"""
 		pass
 
+	def get_device_name(self):
+		return None
+
+	def get_max_power(self):
+		return None
+
 
 class NvidiaProfiler(EnergyProfiler):
 
 	POWER_COMMAND = "nvidia-smi --query-gpu=power.draw --format=csv"
 	MEMORY_COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv"
 	UTIL_COMMAND = "nvidia-smi --query-gpu=utilization.gpu --format=csv"
+	NAME_COMMAND = "nvidia-smi --query-gpu=gpu_name --format=csv"
+	MAX_POWER_COMMAND = "nvidia-smi --query-gpu=power.limit --format=csv"
 
 	def __init__(self,delay,power_cap=75):
 		"""
@@ -319,6 +329,22 @@ class NvidiaProfiler(EnergyProfiler):
 			self._last_measure_time_stamp = new_measure_time_stamp
 			self._last_measure_power = power_measure
 
+	def get_device_name(self):
+		try:
+			output = sp.check_output(__class__.NAME_COMMAND.split(),stderr=sp.STDOUT)
+			return output.decode('ascii').split('\n')[1]
+		except sp.CalledProcessError as e:
+			raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
+		
+	def get_max_power(self):
+		try:
+			output = sp.check_output(__class__.MAX_POWER_COMMAND.split(),stderr=sp.STDOUT)
+			max_power = output.decode('ascii').split('\n')[1]
+		except sp.CalledProcessError as e:
+			raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
+		if max_power is None or max_power=="" or "N/A" in max_power:
+			return self.power_cap
+
 
 class PerfProfiler(EnergyProfiler):
 
@@ -368,6 +394,11 @@ class PerfProfiler(EnergyProfiler):
 		print(energy," J = ",energy/(3600*1000),"kWh")
 		print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
 
+	def get_device_name():
+		INFO_COMMAND = "cat /proc/cpuinfo"
+		cat = sp.Popen(INFO_COMMAND.split(), stdout=sp.PIPE)  # Change stdout to PIPE
+		output = sp.check_output("grep name".split(), stdin=cat.stdout)  # Get stdin from cat.stdout
+		return output.decode('ascii').split('\n')[0].split(": ")[1]
 
 
 class CodecarbonProfiler(EnergyProfiler):
@@ -448,6 +479,20 @@ class LikwidProfiler(EnergyProfiler):
 		print(energy," J = ",energy/(3600*1000),"kWh")
 		with lock:
 			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
+
+	def get_device_name(self):
+		INFO_COMMAND = "cat /proc/cpuinfo"
+		cat = sp.Popen(INFO_COMMAND.split(), stdout=sp.PIPE)  # Change stdout to PIPE
+		output = sp.check_output("grep name".split(), stdin=cat.stdout)  # Get stdin from cat.stdout
+		return output.decode('ascii').split('\n')[0].split(": ")[1]
+
+	def get_max_power(self):
+		COMMAND = "likwid-powermeter -i"
+		try:
+			power_max = sp.check_output(COMMAND.split(),stderr=sp.STDOUT).decode('ascii').split('domain PKG')[1].split('Maximum Power:')[1].split()[0]
+			return power_max
+		except sp.CalledProcessError as e:
+		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 
 
 class PyJoulesProfiler(EnergyProfiler):
