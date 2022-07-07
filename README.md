@@ -18,7 +18,7 @@ This project provides an API to run some general functions of a CNN model based 
 	Supported features :
 	- measures the energy consumed during the execution of a given function
 	- measures the energy consumed in a context (or between a start and a stop point)
-
+	
 ## how to install and use
 
 The project have been to designed to be supported on Linux machines.
