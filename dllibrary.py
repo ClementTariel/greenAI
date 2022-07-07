@@ -183,7 +183,7 @@ class DLLibrary(ABC):
 		and finally free the memory where the model was loaded.
 
 		Args:
-			data_path (string): the path leading to the file to load
+			data_path (str): the path leading to the file to load
 		"""
 		self._data_path = data_path
 		self._load_data(self._data_path)
@@ -301,7 +301,7 @@ class PyTorchLibrary(DLLibrary):
 		The devices used can be specified with enable_GPU to enable/disable GPU usage.
 		
 		Args:
-			data_path (string): the path leading to the file to load
+			data_path (str): the path leading to the file to load
 			enable_GPU (bool): states whether GPU can be used or not
 			model_constructor (class): the class constructor of the model to use 
 									if the file at data_path only contains weights
@@ -561,7 +561,7 @@ class PyTorchLibrary(DLLibrary):
 	    	scheduler (<class 'torch.optim.lr_scheduler.StepLR'>): The PyTorch scheduler to use for training
 	    	preprocess (<class 'function'>): The preprocess to apply to each image
 
-	    Returns
+	    Returns:
 	    	int: The number of steps (= the number of batches) run during the training
 
 	    """
@@ -710,7 +710,7 @@ class ONNXLibrary(DLLibrary):
 		The devices used can be specified with enable_GPU to enable/disable GPU usage.
 		
 		Args:
-			data_path (string): the path leading to the file to load
+			data_path (str): the path leading to the file to load
 			enable_GPU (bool): states whether GPU can be used or not
 
 		"""
@@ -818,7 +818,7 @@ class TensorFlowLibrary(DLLibrary):
 		The devices used can be specified with enable_GPU to enable/disable GPU usage.
 		
 		Args:
-			data_path (string): the path leading to the file to load
+			data_path (str): the path leading to the file to load
 			enable_GPU (bool): states whether GPU can be used or not
 
 		"""

@@ -79,8 +79,6 @@ class EnergyProfiler(ABC):
 		take_measures()
 		battery_check()
 		evaluate(f,*args,**kwargs)
-		get_device_name()
-		get_max_power()
 	"""
 
 	def __init__(self,delay):
@@ -212,11 +210,6 @@ class EnergyProfiler(ABC):
 		"""overridden by subclass"""
 		pass
 
-	def get_device_name(self):
-		return None
-
-	def get_max_power(self):
-		return None
 
 
 class NvidiaProfiler(EnergyProfiler):
@@ -299,11 +292,11 @@ class NvidiaProfiler(EnergyProfiler):
 		new_measure_time_stamp = time.time()
 		try:
 		    power_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))
-		    print(power_use_info)
+		    #print(power_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		power_value = power_use_info[1].split()[0]
-		print(power_value)
+		#print(power_value)
 		if power_value=="[N/A]":
 			warnings.warn("'{}' 'N/A'".format(COMMAND))
 			with lock:
@@ -330,6 +323,14 @@ class NvidiaProfiler(EnergyProfiler):
 			self._last_measure_power = power_measure
 
 	def get_device_name(self):
+		"""
+		Get the name of the GPU
+
+		Uses a command of nvidia-smi to get the name of the GPU
+
+		Returns:
+			str: The name of the GPU
+		"""
 		try:
 			output = sp.check_output(__class__.NAME_COMMAND.split(),stderr=sp.STDOUT)
 			return output.decode('ascii').split('\n')[1]
@@ -337,6 +338,14 @@ class NvidiaProfiler(EnergyProfiler):
 			raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		
 	def get_max_power(self):
+		"""
+		Get the maximum power of the GPU
+
+		Uses a command of nvidia-smi to get the maximum power of the GPU
+
+		Returns:
+			float: The maximum power of the GPU
+		"""
 		try:
 			output = sp.check_output(__class__.MAX_POWER_COMMAND.split(),stderr=sp.STDOUT)
 			max_power = output.decode('ascii').split('\n')[1]
@@ -344,6 +353,7 @@ class NvidiaProfiler(EnergyProfiler):
 			raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		if max_power is None or max_power=="" or "N/A" in max_power:
 			return self.power_cap
+		return float(max_power)
 
 
 class PerfProfiler(EnergyProfiler):
@@ -451,6 +461,7 @@ class LikwidProfiler(EnergyProfiler):
 		"""
 		super().__init__(delay)
 		self._unit = "J"
+		self._energy_ram = 0
 
 	def take_measures(self):
 		"""Get energy consumption with likwid-powermeter."""
@@ -462,6 +473,7 @@ class LikwidProfiler(EnergyProfiler):
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		energy = 0
+		energy_ram = 0
 		# last one is the time elapsed, not an energy and the one before is an empty line
 		# print(energy_use_info)
 		intersting_domain = False
@@ -470,29 +482,70 @@ class LikwidProfiler(EnergyProfiler):
 			try:
 				if line[0].split()[0] == "Domain":
 					intersting_domain = (line[0] == "Domain PKG" or line[0] == "Domain DRAM")
+					is_RAM = (line[0] == "Domain DRAM")
 				if intersting_domain and line[0] == "Energy consumed":
 					energy += float(line[1].split()[0])
+					if is_RAM:
+						energy_ram += float(line[1].split()[0])
 			except:
 				pass
 		with lock:
 			self._energy_consumption += energy
+			self._energy_ram += energy_ram
 		print(energy," J = ",energy/(3600*1000),"kWh")
 		with lock:
 			print("total : ",self._energy_consumption," J = ",self._energy_consumption/(3600*1000),"kWh")
 
+	def get_energy_ram(self):
+		"""
+		Get the energy consumption of the RAM only
+		
+		Returns:
+			float: the energy consumption of the RAM only
+		"""
+		return self._energy_ram
+
 	def get_device_name(self):
+		"""
+		Get the name of the CPU
+
+		Uses the data at /proc/cpuinfo to get the name of the CPU
+
+		Returns:
+			str: The name of the CPU
+		"""
 		INFO_COMMAND = "cat /proc/cpuinfo"
 		cat = sp.Popen(INFO_COMMAND.split(), stdout=sp.PIPE)  # Change stdout to PIPE
 		output = sp.check_output("grep name".split(), stdin=cat.stdout)  # Get stdin from cat.stdout
 		return output.decode('ascii').split('\n')[0].split(": ")[1]
 
 	def get_max_power(self):
+		"""
+		Get the maximum power of the CPU
+
+		Uses a Likwid command to get the maximum power of the CPU
+
+		Returns:
+			float: The maximum power of the CPU
+		"""
 		COMMAND = "likwid-powermeter -i"
 		try:
 			power_max = sp.check_output(COMMAND.split(),stderr=sp.STDOUT).decode('ascii').split('domain PKG')[1].split('Maximum Power:')[1].split()[0]
-			return power_max
+			return flaot(power_max)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
+
+	def get_ram_size(self):
+		"""
+		Get the size of the memory
+
+		Returns:
+			float: The size of the memory in Gb
+		"""
+		INFO_COMMAND = "free -m"
+		cat = sp.Popen(INFO_COMMAND.split(), stdout=sp.PIPE)  # Change stdout to PIPE
+		output = sp.check_output("grep Mem".split(), stdin=cat.stdout)  # Get stdin from cat.stdout
+		return float(output.decode('ascii').split('\n')[0].split(": ")[1].split()[0])/1000
 
 
 class PyJoulesProfiler(EnergyProfiler):
@@ -522,6 +575,7 @@ class PyJoulesProfiler(EnergyProfiler):
 			self._domains.append(RaplDramDomain(i))
 		
 	def take_measures(self):
+		"""Do nothing because the measures are taken automatcally with pyjoules"""
 		print("energy profiling...")
 
 	def _background_measures(self):
@@ -574,7 +628,6 @@ class PyJoulesProfiler(EnergyProfiler):
 					first_line = False
 				else:
 					output = line.split(";")
-					print()
 					print(output[1]+" : "+output[3]+" "+self._unit)
 					energy += float(output[3])
 		self._energy_consumption = energy
@@ -620,7 +673,7 @@ class EnergyUsageProfiler(EnergyProfiler):
 		except RuntimeError:
 		    pass
 		time_used, energy, result_of_f = energyusage.evaluate(f,*args,**kwargs,energyOutput=True)
-		print(time_used, energy, result_of_f)
+		#print(time_used, energy, result_of_f)
 		print(energy," kWh = ",energy*(3600*1000)," J")
 		self._energy_consumption = energy
 		return time_used, energy, result_of_f

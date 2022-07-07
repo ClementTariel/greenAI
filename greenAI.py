@@ -41,11 +41,6 @@ if __name__ == '__main__':
 		print ('Number of models:', len(model_names), '.')
 		print("")
 		for k in range(len(model_names)):
-			#########################
-			#						#
-			#	Work in progress	#
-			#						#
-			#########################
 
 			print ('model :', model_names[k])
 
@@ -58,6 +53,7 @@ if __name__ == '__main__':
 				continue
 
 			# just to test .pt model with constructor in argument
+			# Net is a class imported from 
 			try:
 				model = model_constructor(str(model_names[k]),model_constructor=Net,enable_GPU=enable_GPU)
 			except TypeError:
@@ -66,55 +62,62 @@ if __name__ == '__main__':
 			
 			# random image
 			input_file = "../images/glacier.jpg"
+			input_training_train = "../training/small_data_set/train"
+			input_training_test = "../training/small_data_set/test"
+			output_file = ""  # The model trained model is not saved if no output_file name is given
 
-			test_duration = 12#0
+			# Values arbitrarily chosen
+			test_duration = 120
 			delay_between_measures = 5
-			safe_delay = 6#0
+			safe_delay = 60
 
 			print("start test(s) of ",test_duration," seconds (+ potential additionnal time depending on the delay between 2 measures)")
 			
-			# a bunch of profilers
+			# Train a model 
 			try:
-				nb_of_steps = model.train("","../training/small_data_set/train","../training/small_data_set/test")
+				nb_of_steps = model.train(output_file,input_training_train,input_training_test)
 				print("trained in ",nb_of_steps,"steps")
 			except:
 				print("training not supported")
 			
-			# pb with nvidia-smi power.draw
-			try:
-				profiler = NvidiaProfiler(delay_between_measures)
-				print("NvidiaProfiler")
-				print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
-			except :
-				print("NvidiaProfiler not supported")
-
-			profiler = EnergyUsageProfiler(delay_between_measures)
-			print("EnergyUsageProfiler")
-			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
-			print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			# # A bunch of profilers and tests (uncomment to test)
 			
-			profiler = PyJoulesProfiler(delay_between_measures)
-			print("PyJoulesProfiler")
-			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
-			print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
-			profiler = LikwidProfiler(delay_between_measures)
-			print("LikwidProfiler")
-			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
-			print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
-			profiler = CodecarbonProfiler(delay_between_measures,save_to_file=False)
-			print("CodecarbonProfiler (use a tracker from codecarbon)")
-			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
-			print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
-			profiler = PerfProfiler(delay_between_measures)
-			print("PerfProfiler")
-			print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
-			print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			# profiler = NvidiaProfiler(delay_between_measures)
+			# print("NvidiaProfiler")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			
+			# profiler = EnergyUsageProfiler(delay_between_measures)
+			# print("EnergyUsageProfiler")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			
+			# profiler = PyJoulesProfiler(delay_between_measures)
+			# print("PyJoulesProfiler")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			
+			# profiler = LikwidProfiler(delay_between_measures)
+			# print("LikwidProfiler")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			
+			# profiler = CodecarbonProfiler(delay_between_measures,save_to_file=False)
+			# print("CodecarbonProfiler (use a tracker from codecarbon)")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
+			
+			# profiler = PerfProfiler(delay_between_measures)
+			# print("PerfProfiler")
+			# print("footprint :",model.inference_energy_consumption(profiler,test_duration,input_file,safe_delay=safe_delay),profiler.get_unit()," per run")
+			# print("training footprint :",model.training_energy_consumption(profiler,test_duration,"../training/small_data_set/train","../training/small_data_set/test"),profiler.get_unit()," per run")
 
 			# count the number of parameters
 			print("total :",model.get_number_of_parameters(),"parameters")
 
 			# get the output vector of an inference run
 			print(model.run(input_file))
+
 			print("\\======================================/")
 			print("")
 			

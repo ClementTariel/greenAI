@@ -90,6 +90,6 @@ model = model_constructor(path_to_the_model)
 
 - For some PyTorch models a reference to the class of the model is needed to build it.
 - When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5).
--training is not supported for ONNX models
+- training is not supported for ONNX models
 
 
