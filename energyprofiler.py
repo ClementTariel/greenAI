@@ -531,7 +531,7 @@ class LikwidProfiler(EnergyProfiler):
 		COMMAND = "likwid-powermeter -i"
 		try:
 			power_max = sp.check_output(COMMAND.split(),stderr=sp.STDOUT).decode('ascii').split('domain PKG')[1].split('Maximum Power:')[1].split()[0]
-			return flaot(power_max)
+			return float(power_max)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 
