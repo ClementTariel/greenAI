@@ -64,8 +64,17 @@ class EnergyProfiler(ABC):
 		self._last_background_lauch_timestamp: float
 			A float to keep track of time and make sure energy measurements are realized regularly
 			It is refreshed every time a measurement is realized
+		self._last_measure_time_stamp: float
+			A float to keep track of the effective intervall of time between measurements.
+			It is combined with power measurements to compute an estimation of the energy consumption.
+			It is not exactly the same as self._last_background_lauch_timestamp which is not used 
+			to compute the energy but only to schedule the measurements.
+		self._last_measure_power (float):
+			The last power measurement. Used to compute an estimation of the energy consumption.
 		self._background_measures_thread: Thread
 			The thread that wait and launch regularly measurements
+		self._unit: str
+			The unit used to express the energy measured
 
 	Methods:
 		__init__(delay)
@@ -205,12 +214,30 @@ class EnergyProfiler(ABC):
 
 
 class NvidiaProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
 
+	Additional Attributes:
+		self.power_cap (float):
+			A float to give the maximum power usage of the GPU used.
+		self._using_util (bool):
+			A bool to indicate if the profiler measures the percentage of use of the GPU or not.
+			It is True when direct power measurements are not available.
+		self._COMMAND (str):
+			The command to use when taking measurements.
+
+	Additional Methods:
+		check_power_readings_availibility()
+		get_device_name()
+		get_max_power
+	"""
+
+	# some nvidia-smi commands
 	POWER_COMMAND = "nvidia-smi --query-gpu=power.draw --format=csv"
 	MEMORY_COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv"
 	UTIL_COMMAND = "nvidia-smi --query-gpu=utilization.gpu --format=csv"
 	NAME_COMMAND = "nvidia-smi --query-gpu=gpu_name --format=csv"
-	MAX_POWER_COMMAND = "nvidia-smi --query-gpu=power.limit --format=csv"
+	MAX_POWER_COMMAND = "nvidia-smi --query-gpu=power.limit --format=csv"Args
 
 	def __init__(self,delay,power_cap=75):
 		"""
@@ -346,6 +373,18 @@ class NvidiaProfiler(EnergyProfiler):
 
 
 class PerfProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
+
+	Additional Attributes:
+		self._sudo_privilege (str):
+			It is equal to either the "" if root privileges are not needed or to "sudo "
+			if the command without it fails. it is concateneted with the command used to
+			measure power draw.
+
+	Additional Methods:
+		get_device_name()
+	"""
 
 	def __init__(self,delay):
 		"""
@@ -399,6 +438,17 @@ class PerfProfiler(EnergyProfiler):
 
 
 class CodecarbonProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
+
+	Additional Attributes:
+		self._tracker:
+			An instance of EmissionsTracker from codecarbon
+
+	Overridden Methods:
+		start()
+		stop()
+	"""
 
 	def __init__(self,delay,save_to_file=False):
 		"""
@@ -416,6 +466,7 @@ class CodecarbonProfiler(EnergyProfiler):
 		self._tracker = EmissionsTracker(measure_power_secs=delay,save_to_file=save_to_file)
 
 	def take_measures(self):
+		"""Do nothing because the measures are taken automatcally with codecarbon"""
 		pass
 
 	def start(self):
@@ -434,6 +485,19 @@ class CodecarbonProfiler(EnergyProfiler):
 
 
 class LikwidProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
+
+	Additional Attributes:
+		self._energy_ram (float):
+			The energy consumed only by the RAM
+
+	Additional Methods:
+		get_energy_ram()
+		get_device_name()
+		get_max_power()
+		get_ram_size()
+	"""
 
 	def __init__(self,delay):
 		"""
@@ -533,6 +597,26 @@ class LikwidProfiler(EnergyProfiler):
 
 
 class PyJoulesProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
+
+	Additional Attributes:
+		self._id (int):
+			A unique id based on the date of creation of the instance.
+			It is used to name temporary files and to avoid collisions
+			in case multiple profilers are run at the same time.
+		self._csv_temp_file_name (str):
+			The name of a temporary file used to store the measurements and read them at the end of the test.
+		self._csv_handler:
+			An object to manage the temporary file.
+		self._domains:
+			A list of the domains on which measurements are going to be made.
+			It is used by the EnergyContext of pyjoules.
+
+	Overridden Methods:
+		_background_measures()
+		stop()
+	"""
 
 	def __init__(self,delay,cpu_domains=[0],ram_domains=[0],gpu_domains=[]):
 		"""
@@ -548,7 +632,7 @@ class PyJoulesProfiler(EnergyProfiler):
 		super().__init__(delay)
 		self._unit = "uJ"
 		self._id = int(time.time()*10**9)
-		self._csv_temp_file_name  = '.temp_result'+str(self._id)+'.csv'
+		self._csv_temp_file_name = '.temp_result'+str(self._id)+'.csv'
 		self._csv_handler = CSVHandler(self._csv_temp_file_name)
 		self._domains = []
 		for i in cpu_domains:
@@ -612,6 +696,12 @@ class PyJoulesProfiler(EnergyProfiler):
 
 
 class EnergyUsageProfiler(EnergyProfiler):
+	"""
+	child of EnergyProfiler
+
+	Overridden Methods:
+		evaluate(f,*args,**kwargs)
+	"""
 
 	def __init__(self,delay):
 		"""
@@ -630,6 +720,7 @@ class EnergyUsageProfiler(EnergyProfiler):
 		self._unit = "kWh"
 
 	def take_measures(self):
+		"""Do nothing because the measures are taken automatcally with energyusage"""
 		pass
 
 	def evaluate(self,f,*args,**kwargs):
