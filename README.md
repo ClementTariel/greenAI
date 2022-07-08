@@ -66,9 +66,11 @@ Note that to use most of the profilers you will need to run your script with roo
 
 The greenAI.py script can be used as a test (to make sure there are no import errors for example).
 
-example of use of webconnection.py
+example of use of webconnection.py :
+
 `$ python3 webconnection.py script_to_evaluate.py [arg1] [arg2] ...`
-The help is also available with `python3 webconnection.py -h`
+
+The help is also available with `$ python3 webconnection.py -h`
 
 ## how to add new model type and new profilers
 
