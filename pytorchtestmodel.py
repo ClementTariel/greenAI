@@ -2,7 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn 
 
-# to test .pt model saved as weight only
+# class to test .pt model saved as weight only
+# /!\ The structure of this model was made quite randomly, do not expect it to be good at anything
+# (there is probably too many conv layer considering the input size anyways)
 
 class Net(nn.Module):
 
@@ -28,16 +30,6 @@ class Net(nn.Module):
         self.conv_bn_4 = nn.BatchNorm2d(128)
         torch.nn.init.normal_(self.conv4.weight)
         torch.nn.init.zeros_(self.conv4.bias)
-        
-        #self.conv5 = nn.Conv2d(64, 128 , 3, 1, padding=1)
-        #self.conv_bn_5 = nn.BatchNorm2d(128)
-        #torch.nn.init.normal_(self.conv5.weight)
-        #torch.nn.init.zeros_(self.conv5.bias)
-        
-        #self.conv4 = nn.Conv2d(256, 512 , 3, 1, padding=1)
-        #self.conv_bn_4 = nn.BatchNorm2d(512)
-        #torch.nn.init.normal_(self.conv4.weight)
-        #torch.nn.init.zeros_(self.conv4.bias)
         
         self.pool  = nn.MaxPool2d(2,2)
 

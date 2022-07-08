@@ -45,9 +45,6 @@ else:
 	warnings.warn("tf.config.list_physical_devices('GPU') is empty, there is no GPU available for tensorflow. ",GPUNotFoundWarning)
 
 
-
-
-
 def volume(shape):
 	"""
     Return the volume of a n-dimensional hyperrectangle.
@@ -111,7 +108,6 @@ def default_preprocess_NCHW(image,input_shape):
 		# For a single inference test, the batch size is 1.
 		input_array = np.asarray([input_array])
 	# #normalize
-	# input_array/=255
 	return input_array
 
 def default_preprocess_NHWC(image,input_shape):
@@ -140,7 +136,6 @@ def default_preprocess_NHWC(image,input_shape):
 		# For a single inference test, the batch size is 1.
 		input_array = np.asarray([input_array])
 	# #normalize
-	# input_array/=255
 	return input_array
 
 
@@ -168,8 +163,10 @@ class DLLibrary(ABC):
 		get_number_of_parameters()
 		free_model_data()
 		run(input_data)
-		inference_energy_consumption(profiler,test_duration,input_data,safe_delay,**kwargs):
-		train(data_path) # work in progress
+		inference_energy_consumption(profiler,test_duration,input_data,safe_delay,**kwargs)
+		train(output_file,train_data,test_data)
+		training_energy_consumption(profiler,test_duration,train_data_path,test_data_path,safe_delay,**kwargs)
+		training_energy_consumption(profiler,test_duration,train_data_path,test_data_path,safe_delay,**kwargs)
 
 	"""
 	
@@ -258,6 +255,8 @@ class DLLibrary(ABC):
 		Then launches a training session during test_duration seconds.
 
 		Args:
+			profiler (<class 'energyprofiler.EnergyProfiler'>): The profiler to use for profiling
+			test_duration (float): The minimum duration of the tests
 			train_data_path (str): The path to the data to feed to the training loop of the model
 	    	test_data_path (str): The path to the data to feed to the testing phase
 	    	safe_delay (float): The time (in seconds) of inactivity before the beginning of the tests
@@ -301,10 +300,11 @@ class PyTorchLibrary(DLLibrary):
 		The devices used can be specified with enable_GPU to enable/disable GPU usage.
 		
 		Args:
-			data_path (str): the path leading to the file to load
-			enable_GPU (bool): states whether GPU can be used or not
-			model_constructor (class): the class constructor of the model to use 
+			data_path (str): The path leading to the file to load
+			enable_GPU (bool): States whether GPU can be used or not
+			model_constructor (class): The class constructor of the model to use 
 									if the file at data_path only contains weights
+			input_shape (list[int]): The list of the size of the input on each of its dimension
 
 		"""
 		self._model_constructor = model_constructor
@@ -370,8 +370,11 @@ class PyTorchLibrary(DLLibrary):
 
 		Goes through trial and error, test different input shapes and find one that does not raise errors.
 
+		Args:
+			input_shape (list[int]): The list of the size of the input on each of its dimension
+
 		Returns:
-    		list[int]: The shape accepted by the PyTorch model
+    		list[int]: The input shape accepted by the PyTorch model
 		
 		"""
 		if not self._input_shape is None :
@@ -464,7 +467,6 @@ class PyTorchLibrary(DLLibrary):
 	    	preprocess (<class 'function'>): the preprocess to apply to the input data
 	    Returns:
 	    	int: the number of time that the inference was run
-
 		"""
 		self._load_data(self._data_path)
 		model = self._data_loaded
@@ -542,7 +544,7 @@ class PyTorchLibrary(DLLibrary):
 		self.free_model_data()
 		return output
 
-	def train(self,output_file,train_data_path,test_data_path,save_with_jit=None,batch_size=1,number_of_epochs=20,print_every=5,preprocess=None,optimizer=None,scheduler=None,):
+	def train(self,output_file,train_data_path,test_data_path,save_with_jit=None,batch_size=1,number_of_epochs=20,print_every=5,preprocess=None,optimizer=None,scheduler=None):
 		"""
 		Train the model.
 
@@ -557,10 +559,10 @@ class PyTorchLibrary(DLLibrary):
 	    	batch_size (int): The size of the batches during training
 	    	number_of_epochs (int): The number of epochs (loop)
 	    	print_every (int): The number of step between each evaluation of the model to print accuracy, loss, etc
-	    	optimiser (<class 'torch.optim.sgd.SGD'>): The PyTorch optimiser to use for training
-	    	scheduler (<class 'torch.optim.lr_scheduler.StepLR'>): The PyTorch scheduler to use for training
 	    	preprocess (<class 'function'>): The preprocess to apply to each image
-
+			optimiser (<class 'torch.optim.sgd.SGD'>): The PyTorch optimiser to use for training
+	    	scheduler (<class 'torch.optim.lr_scheduler.StepLR'>): The PyTorch scheduler to use for training
+	    	
 	    Returns:
 	    	int: The number of steps (= the number of batches) run during the training
 
@@ -718,7 +720,12 @@ class ONNXLibrary(DLLibrary):
 		super().__init__(data_path)
 		
 	def _load_data(self,data_path):
-		"""Load the data in self._data_loaded with ONNX API."""
+		"""
+		Load the data in self._data_loaded with ONNX API.
+
+		Args:
+			data_path (str): the path leading to the file to load
+		"""
 		self._data_loaded = onnx.load(data_path)
 
 	def _compute_number_of_parameters(self):
@@ -836,7 +843,12 @@ class TensorFlowLibrary(DLLibrary):
 		self.free_model_data()
 
 	def _load_data(self,data_path):
-		"""Load the data in self._data_loaded with tensorflow.keras API."""
+		"""
+		Load the data in self._data_loaded with tensorflow.keras API.
+		
+		Args:
+			data_path (str): the path leading to the file to load
+		"""
 		
 		with tf.device(self._device_str):
 			# compile=False means the model can be used only in inference (avoid warnings about training)
@@ -1135,7 +1147,7 @@ class TensorFlowLibrary(DLLibrary):
 				tf.saved_model.save(model, output_file)
 		
 		self.free_model_data()
-		return number_of_epochs*len(train_images)*(1-validation_split)/batch_size
+		return number_of_epochs*len(train_images)*(1-validation_split)
 
 	def _training_energy_consumption(self,test_duration,train_data_path,test_data_path,batch_size=1,number_of_epochs=20,validation_split=0.2,print_every=5,preprocess=default_preprocess,optimizer=None):
 		"""
@@ -1147,10 +1159,11 @@ class TensorFlowLibrary(DLLibrary):
 	    	test_data_path (str): The path to the data to feed to the testing phase
 	    	batch_size (int): The size of the batches during training
 	    	number_of_epochs (int): The number of epochs (loop)
+	    	validation_split (float): the proportion of the training set used to evaluate the progress
+	    	print_every (int): The number of step between each evaluation of the model to print accuracy, loss, etc
 	    	preprocess (<class 'function'>): the preprocess to apply to each image
 	    	optimiser : The TensorFlow optimiser to use for training
-	    	print_every (int): The number of step between each evaluation of the model to print accuracy, loss, etc
-	    
+	    	
 	    Returns:
 	    	int: the number of steps that the training took
 
