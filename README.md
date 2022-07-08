@@ -6,6 +6,7 @@ This project provides an API to run some general functions of a CNN model based 
 
 - CNN API :
 	Support ONNX, PyTorch and TensorFlow models with a square image input
+	
 	Supported functions on a model :
 	- count of the number of parameters of the model
 	- run the model in inference mode		
@@ -15,9 +16,12 @@ This project provides an API to run some general functions of a CNN model based 
 
 - Energy Profiler API :
 	Need the absence of background process to avoid interference (else the background process will use the computer resources and increase the energy consumption)
+	
 	Supported features :
 	- measures the energy consumed during the execution of a given function
 	- measures the energy consumed in a context (or between a start and a stop point)
+
+Additionnaly webconnection.py can give an eco-friendliness grade based on an other project (see https://github.com/PabloGamiz/) by sending requests to https://pablogamiz.pythonanywhere.com/
 	
 ## how to install and use
 
@@ -62,6 +66,10 @@ Note that to use most of the profilers you will need to run your script with roo
 
 The greenAI.py script can be used as a test (to make sure there are no import errors for example).
 
+example of use of webconnection.py
+`$ python3 webconnection.py script_to_evaluate.py [arg1] [arg2] ...`
+The help is also available with `python3 webconnection.py -h`
+
 ## how to add new model type and new profilers
 
 Each API has a parent abstract class, to add a new model type or a new profiler you can just create a new class with the abstract class as parent.
@@ -88,8 +96,8 @@ model = model_constructor(path_to_the_model)
 
 ## known issues
 
-- For some PyTorch models a reference to the class of the model is needed to build it.
-- When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5).
+- For some PyTorch models a reference to the class of the model is needed to build it. The class has to be imported because if it is directly implemented in the code making some profiling tests it may crash because of the way PyTorch handles subprocesses.
+- When a profiler stops measuring energy consumption there is a delay before it actually stops, because the delay between two measures always divides the total measuring time (for example if the profiler measures energy consumption every 5s and that the measured function stops after 57s, there will be a 3s delay to reach 60s because 57 is not a multiple of 5). If several profilers are used in parallel with the same delay between measures, it also causes each new profiler to make one more measure than the previous one.
 - training is not supported for ONNX models
 
 
