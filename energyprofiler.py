@@ -115,7 +115,6 @@ class EnergyProfiler(ABC):
 			self._get_energy_profile_thread.start()
 			next_delay = self._delay+time_offset-time.time()
 			if next_delay > 0:
-				#print("next_delay : ",next_delay,"seconds.")
 				time.sleep(next_delay)
 			else:
 				print(-next_delay,"seconds behind schedule")
@@ -181,13 +180,6 @@ class EnergyProfiler(ABC):
 		"""Stops background mesuring of energy consumption."""
 		with lock:
 			self._profiling = False
-		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
-		# if delay_before_stopping < 0:
-		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
-		# 	with lock:
-		# 		print("self._profiling :",self._profiling)
-		# 	delay_before_stopping = 0
-		# time.sleep(delay_before_stopping)
 		self._background_measures_thread.join()
 		return self._energy_consumption
 
@@ -262,7 +254,6 @@ class NvidiaProfiler(EnergyProfiler):
 		except sp.CalledProcessError as e:
 			power_readings_available = False
 			warnings.warn("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
-			#raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		if power_readings_available:
 			power_value = power_use_info[1].split()[0]
 			print("Readings available :",power_value)
@@ -292,11 +283,9 @@ class NvidiaProfiler(EnergyProfiler):
 		new_measure_time_stamp = time.time()
 		try:
 		    power_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))
-		    #print(power_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		power_value = power_use_info[1].split()[0]
-		#print(power_value)
 		if power_value=="[N/A]":
 			warnings.warn("'{}' 'N/A'".format(COMMAND))
 			with lock:
@@ -371,7 +360,7 @@ class PerfProfiler(EnergyProfiler):
 		"""
 		super().__init__(delay)
 		self._unit = "J"
-		# In case the user don't want to allow the use of perf from other programms
+		# In case the user don't want to allow the use of perf from other program
 		# and want to use sudo to give root privileges to this command only.
 		TEST_COMMAND = "perf stat -e power/energy-cores/,power/energy-ram/,power/energy-gpu/,power/energy-pkg/,power/energy-psys/ sleep 0"
 		self._sudo_privilege = ""
@@ -390,11 +379,9 @@ class PerfProfiler(EnergyProfiler):
 			COMMAND = self._sudo_privilege+" perf stat -e power/energy-cores/,power/energy-ram/,power/energy-gpu/,power/energy-pkg/,power/energy-psys/ sleep "+str(self._delay)
 		try:
 		    energy_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))[3:-2]
-		    #print(energy_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		energy = 0
-		# print(energy_use_info)
 		for output_log in energy_use_info:
 			if "energy-pkg" in output_log or "energy-ram" in output_log:
 				str_value = output_log.split("Joule")[0]
@@ -469,13 +456,10 @@ class LikwidProfiler(EnergyProfiler):
 			COMMAND = "likwid-powermeter -s "+str(self._delay)+"s"
 		try:
 		    energy_use_info = output_to_list(sp.check_output(COMMAND.split(),stderr=sp.STDOUT))
-		    #print(energy_use_info)
 		except sp.CalledProcessError as e:
 		    raise RuntimeError("command '{}' return with error (code {}): {}".format(e.cmd, e.returncode, e.output))
 		energy = 0
 		energy_ram = 0
-		# last one is the time elapsed, not an energy and the one before is an empty line
-		# print(energy_use_info)
 		intersting_domain = False
 		for output_log in energy_use_info:
 			line = output_log.split(":")
@@ -597,7 +581,6 @@ class PyJoulesProfiler(EnergyProfiler):
 				self._get_energy_profile_thread.start()
 				next_delay = self._delay+time_offset-time.time()
 				if next_delay > 0:
-					#print("next_delay : ",next_delay,"seconds.")
 					time.sleep(next_delay)
 				else:
 					print(-next_delay,"seconds behind schedule")
@@ -611,13 +594,6 @@ class PyJoulesProfiler(EnergyProfiler):
 		"""Stops background mesuring of energy consumption."""
 		with lock:
 			self._profiling = False
-		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
-		# if delay_before_stopping < 0:
-		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
-		# 	with lock:
-		# 		print("self._profiling :",self._profiling)
-		# 	delay_before_stopping = 0
-		# time.sleep(delay_before_stopping)
 		self._background_measures_thread.join()
 		self._csv_handler.save_data()
 		energy = 0
@@ -673,80 +649,7 @@ class EnergyUsageProfiler(EnergyProfiler):
 		except RuntimeError:
 		    pass
 		time_used, energy, result_of_f = energyusage.evaluate(f,*args,**kwargs,energyOutput=True)
-		#print(time_used, energy, result_of_f)
 		print(energy," kWh = ",energy*(3600*1000)," J")
 		self._energy_consumption = energy
 		return time_used, energy, result_of_f
 
-# 	def _wait(self,t):
-# 		"""
-# 		Wait until the end of thread t
-
-# 		Args:
-# 			t: thread
-# 		    	the thread to evaluate
-# 		"""
-# 		print("waiting begin")
-# 		print(t.name)
-# 		print(time.time())
-# 		t.join()
-# 		print(time.time())
-# 		print("waiting end")
-		
-# 	def _evaluate(self,t):
-# 		"""
-# 		Call energyusage.evaluate to get energy consumption of f
-
-# 		Args:
-# 			f: function
-# 		    	The function to evaluate
-# 		    t:
-# 		    	the thread to evaluate
-# 		"""
-# 		print("evaluate begin")
-# 		time_used, energy, result_of_f = energyusage.evaluate(self._wait,t,energyOutput=True)
-# 		print(time_used, energy, result_of_f)
-# 		self._energy_consumption = energy
-# 		print("evaluate end")
-
-# 	def start(self):
-# 		"""Launches background mesuring of energy consumption."""
-# 		# Warn the user if the battery is charging
-# 		self.battery_check()
-# 		print("start begin")
-# 		self._energy_consumption = 0
-# 		self._last_measure_time_stamp = None
-# 		with lock:
-# 			self._profiling = True
-# 		self._background_measures_thread = Thread(name="background", target=self._background_measures)
-# 		self._background_measures_thread.daemon = True
-# 		self._background_measures_thread.start()
-# 		print("start middle")
-		
-# 		#self._evaluate_thread = Thread(target=self._evaluate, args=(self._background_measures_thread,))
-# 		self._evaluate_thread = Thread(target=lambda t=self._background_measures_thread: self._evaluate(t))
-# 		self._evaluate_thread.daemon = True
-# 		self._evaluate_thread.start()
-# 		print("start end")
-
-# 	def stop(self):
-# 		"""Stops background mesuring of energy consumption."""
-# 		with lock:
-# 			self._profiling = False
-# 		# delay_before_stopping = self._last_background_lauch_timestamp + self._delay - time.time()
-# 		# if delay_before_stopping < 0:
-# 		# 	print("Could not stop process in time. Return"+str(delay_before_stopping)+" seconds late.")
-# 		# 	with lock:
-# 		# 		print("self._profiling :",self._profiling)
-# 		# 	delay_before_stopping = 0
-# 		# time.sleep(delay_before_stopping)
-# 		print("stop before joinning")
-# 		self._background_measures_thread.join()
-# 		print("stop end")
-# 		return self._energy_consumption
-
-
-
-
-
-	
