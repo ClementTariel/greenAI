@@ -218,12 +218,12 @@ class NvidiaProfiler(EnergyProfiler):
 	child of EnergyProfiler
 
 	Additional Attributes:
-		self.power_cap (float):
+		self.power_cap : float
 			A float to give the maximum power usage of the GPU used.
-		self._using_util (bool):
+		self._using_util : bool
 			A bool to indicate if the profiler measures the percentage of use of the GPU or not.
 			It is True when direct power measurements are not available.
-		self._COMMAND (str):
+		self._COMMAND : str
 			The command to use when taking measurements.
 
 	Additional Methods:
@@ -377,7 +377,7 @@ class PerfProfiler(EnergyProfiler):
 	child of EnergyProfiler
 
 	Additional Attributes:
-		self._sudo_privilege (str):
+		self._sudo_privilege : str
 			It is equal to either the "" if root privileges are not needed or to "sudo "
 			if the command without it fails. it is concateneted with the command used to
 			measure power draw.
@@ -442,7 +442,7 @@ class CodecarbonProfiler(EnergyProfiler):
 	child of EnergyProfiler
 
 	Additional Attributes:
-		self._tracker:
+		self._tracker :
 			An instance of EmissionsTracker from codecarbon
 
 	Overridden Methods:
@@ -489,7 +489,7 @@ class LikwidProfiler(EnergyProfiler):
 	child of EnergyProfiler
 
 	Additional Attributes:
-		self._energy_ram (float):
+		self._energy_ram : float
 			The energy consumed only by the RAM
 
 	Additional Methods:
@@ -601,15 +601,15 @@ class PyJoulesProfiler(EnergyProfiler):
 	child of EnergyProfiler
 
 	Additional Attributes:
-		self._id (int):
+		self._id : int
 			A unique id based on the date of creation of the instance.
 			It is used to name temporary files and to avoid collisions
 			in case multiple profilers are run at the same time.
-		self._csv_temp_file_name (str):
+		self._csv_temp_file_name : str
 			The name of a temporary file used to store the measurements and read them at the end of the test.
-		self._csv_handler:
+		self._csv_handler :
 			An object to manage the temporary file.
-		self._domains:
+		self._domains :
 			A list of the domains on which measurements are going to be made.
 			It is used by the EnergyContext of pyjoules.
 

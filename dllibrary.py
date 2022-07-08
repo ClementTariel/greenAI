@@ -154,6 +154,10 @@ class DLLibrary(ABC):
 		    The model once it is loaded
 		self._number_of_parameters : int
 		    The number of parameters
+		self._inference_energy_consumption : float
+			The energy consumed during inference
+		self._training_energy_consumption : float
+			The energy consumed during training
 
 	Methods:
 		__init__()
@@ -166,8 +170,7 @@ class DLLibrary(ABC):
 		inference_energy_consumption(profiler,test_duration,input_data,safe_delay,**kwargs)
 		train(output_file,train_data,test_data)
 		training_energy_consumption(profiler,test_duration,train_data_path,test_data_path,safe_delay,**kwargs)
-		training_energy_consumption(profiler,test_duration,train_data_path,test_data_path,safe_delay,**kwargs)
-
+		_training_energy_consumption(test_duration,train_data_path,test_data_path)
 	"""
 	
 	def __init__(self,data_path):
@@ -291,6 +294,23 @@ class DLLibrary(ABC):
 
 
 class PyTorchLibrary(DLLibrary):
+	"""
+	child of DLLibrary
+
+	Additional Attributes:
+		self._model_constructor : 
+			The class constructor of the model to use 
+			if the file at data_path only contains weights
+		self._device :
+			The device used by torch
+		self._is_jit_model : bool
+			A bool to indicate if the model has been saved using torch.jit
+		self._input_shape : list[int]
+			The list of the size of the input on each of its dimension
+
+	Additional Methods:
+		_define_input_shape(input_shape)
+	"""
 
 	def __init__(self,data_path,enable_GPU=True,model_constructor=None,input_shape=None):
 		"""
@@ -703,6 +723,7 @@ class PyTorchLibrary(DLLibrary):
 		
 
 class ONNXLibrary(DLLibrary):
+	"""child of DLLibrary"""
 
 	def __init__(self,data_path,enable_GPU=True):
 		"""
@@ -816,6 +837,20 @@ class ONNXLibrary(DLLibrary):
 
 
 class TensorFlowLibrary(DLLibrary):
+	"""
+	child of DLLibrary
+
+	Additional Attributes:
+		self._device_str : str
+			A string to represent the type of device used ("cpu" or "gpu")
+		self._is_keras_model : bool
+			A bool to indicate if the model has been saved using keras
+		self._input_shape : list[int]
+			The list of the size of the input on each of its dimension
+
+	Additional Methods:
+		_define_input_shape()
+	"""
 
 	def __init__(self,data_path,enable_GPU=True):
 		"""
@@ -856,11 +891,9 @@ class TensorFlowLibrary(DLLibrary):
 			try:
 				self._data_loaded = tf.saved_model.load(data_path)
 				self._is_keras_model = False
-				#print("not keras")
 			except:
 				self._is_keras_model = True			
-				self._data_loaded = tf.keras.models.load_model(data_path)
-				#print("keras")		
+				self._data_loaded = tf.keras.models.load_model(data_path)	
 
 	def _compute_number_of_parameters(self):
 		"""
